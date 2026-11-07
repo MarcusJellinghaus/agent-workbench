@@ -115,6 +115,20 @@ Additional contracts:
 - `core` imports no other layer.
 - Source never imports `tests`.
 
+### Third-party dependencies per layer
+
+Each runtime dependency may be imported only by the layer(s) listed. The issue that
+adds a dependency also adds its import-linter `forbidden` contract
+(`include_external_packages = True` is already set).
+
+| Layer | Allowed third-party libraries |
+|---|---|
+| core | `pydantic` only (models, config); `pydantic` is allowed in every layer |
+| adapters | `pyodbc`, SQL and Workspace MCP packages (tool functions), `smbprotocol`, auth / Kerberos libraries |
+| services | none of its own; uses core and adapters (permission-checking wrappers, audit) |
+| interfaces | `fastapi`, `uvicorn` (milestone 3) |
+| apps | `langchain-*`, `langgraph`, `chainlit`, `nicegui` |
+
 ### Placeholder code
 
 `core/greeting.py` and `interfaces/cli.py` (entry point `agent-workspace`) exist only
