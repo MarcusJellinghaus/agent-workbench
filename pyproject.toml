@@ -26,7 +26,9 @@ dependencies = []
 # `mypy --strict src tests` imports. Runtime deps come from the project itself.
 typecheck = [
     "mypy>=1.13.0",
-    "pytest",
+    # <9.3: under pytest 9.2.0 + pytest-xdist 3.8.0 the workers finish with work
+    # pending (xdist INTERNALERROR `assert not crashitem`) — same pin as mcp_coder.
+    "pytest<9.3",
 ]
 dev = [
     "agent-workspace[typecheck]",
@@ -39,6 +41,7 @@ dev = [
     "deptry>=0.25.1",
     "import-linter>=2.0",
     "vulture>=2.14",
+    "pytest-asyncio",      # asyncio_mode = "auto"; Chainlit/LangGraph code is async
     "pytest-xdist",        # addopts uses `-n auto`
     "pytest-cov",
     "diff-cover",
@@ -70,6 +73,8 @@ pythonpath = ["src"]
 # -n auto: run tests in parallel using all available CPUs
 # -p no:tach: disable tach plugin (noisy output about unaffected tests)
 addopts = ["--strict-markers", "--tb=short", "-n", "auto", "-p", "no:tach"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: general integration tests requiring external resources",
 ]
@@ -103,6 +108,7 @@ disable = [
     "W0404",   # reimported — reimports across test functions
     "W0718",   # broad-exception-caught — intentional catch-all at CLI/app boundaries
     "W0706",   # try-except-raise — explicit re-raise for clarity in error chains
+    "W4903",   # deprecated-argument — tracked for future cleanup
 ]
 enable = ["R0401"]
 
