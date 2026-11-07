@@ -1,0 +1,3 @@
+# Files exceeding the 750-line limit, grandfathered in.
+# Reduce over time; do not add new entries.
+# Generate with: mcp-coder check file-size --generate-allowlist --max-lines 750

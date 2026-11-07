@@ -1,0 +1,240 @@
+name: Python CI
+
+# Adapted from mcp_coder's ci.yml. Which job runs on which event:
+#   Feature push  → first-line checks + tests: fast, catch most errors early.
+#   Pull request  → backup checks + tests: slow, or redundant with earlier gates.
+#   Main push / dispatch → both sets (post-merge safety net).
+# Every check runs at least once before merge, on push or on PR.
+# Job names are required-check names: don't rename them, and never skip a check with a step-level `if`.
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # PR only: pr_info/ is allowed on branches, not in a merge.
+  check-forbidden-folders:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Check for forbidden folders in PR
+      run: |
+        echo "Checking for forbidden folders in pull request..."
+
+        # Function to check for folder existence case-insensitively
+        check_forbidden_folder() {
+          local pattern="$1"
+          local description="$2"
+
+          # Use find with case-insensitive matching
+          if find . -type d -ipath "*${pattern}*" -print -quit | grep -q .; then
+            echo "❌ ERROR: Found forbidden folder matching '${pattern}'"
+            echo "Description: ${description}"
+            find . -type d -ipath "*${pattern}*" | sed 's/^/ Found: /'
+            return 1
+          else
+            echo "✅ No forbidden folder found for pattern: ${pattern}"
+            return 0
+          fi
+        }
+
+        # Check for forbidden folders
+        ERROR=0
+
+        check_forbidden_folder "pr_info" "Temporary development folder (planning, tracking, review logs)" || ERROR=1
+        check_forbidden_folder ".scratch" "Agent scratch probes (throwaway tests) - delete after the experiment" || ERROR=1
+
+        if [ $ERROR -eq 1 ]; then
+          echo ""
+          echo "❌ PULL REQUEST BLOCKED: Forbidden folders detected!"
+          echo "These folders should not be included in pull requests."
+          echo "Please remove them and update your .gitignore if necessary."
+          echo "Note: These folders are allowed in regular commits, just not in PRs."
+          exit 1
+        else
+          echo ""
+          echo "✅ All checks passed! No forbidden folders found."
+        fi
+
+  # Matrix approach: Each check runs as independent job with individual pass/fail status
+  # fail-fast: false ensures all checks complete even if one fails
+  # First-line checks: run on every push, not again on the PR.
+  push-checks:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - {name: "ruff-format", cmd: "ruff version && ruff format --check src tests tools"}
+          - {name: "ruff", cmd: "ruff version && ruff check src tests tools"}
+          - {name: "mypy", install: ".[typecheck]", cmd: "mypy --version && mypy --strict src tests"}
+          - {name: "file-size", cmd: "mcp-coder check file-size --max-lines 750 --allowlist-file .large-files-allowlist"}
+          - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
+          - {name: "import-linter", cmd: "uv pip show import-linter | grep Version && ./tools/lint_imports.sh"}
+          - {name: "vulture", cmd: "vulture --version && ./tools/vulture_check.sh"}
+    name: ${{ matrix.check.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        # GitHub-installed deps come from [tool.mcp-coder.install-from-github]
+        # in pyproject.toml (installed in the same uv call so they win over PyPI).
+        # A matrix entry may set `install:` to use a leaner extra (mypy: .[typecheck]).
+        run: |
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" "${{ matrix.check.install || '.[dev]' }}"
+
+      - name: Environment info
+        run: |
+          uname -a
+          python --version
+          uv --version
+          git --version
+
+      - name: Run ${{ matrix.check.name }}
+        run: ${{ matrix.check.cmd }}
+
+  # Backup checks: run on PR, main push and dispatch.
+  pr-checks:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - {name: "pylint", cmd: "pylint --version && pylint ./src ./tests"}  # configuration via pyproject.toml
+          - {name: "tach", cmd: "tach --version && ./tools/tach_check.sh"}
+          - {name: "deptry", cmd: "deptry --version && ./tools/deptry_check.sh"}
+    name: ${{ matrix.check.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: |
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" "${{ matrix.check.install || '.[dev]' }}"
+
+      - name: Environment info
+        run: |
+          uname -a
+          python --version
+          uv --version
+          git --version
+
+      - name: Run ${{ matrix.check.name }}
+        run: ${{ matrix.check.cmd }}
+
+  # Runs on push and PR: coverage needs it in the PR run.
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: |
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
+
+      - name: Run unit-tests
+        env:
+          COVERAGE_FILE: .coverage.unit
+        run: |
+          pytest --version && pytest -m 'not integration' --cov=src/agent_workspace --cov-report= --junitxml=unit-tests.xml
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-data-unit
+          path: .coverage.unit
+          include-hidden-files: true
+          retention-days: 1
+
+  # Coverage report (reporting only — never a gate)
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.11
+
+      - name: Install coverage tools
+        run: pip install coverage diff-cover
+
+      - name: Download coverage data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Combine coverage data
+        id: coverage_combine
+        run: |
+          coverage combine coverage-data
+          coverage xml -o coverage.xml
+          echo "total=$(coverage report --format=total)" >> "$GITHUB_OUTPUT"
+
+      # The gist is shared with mcp_coder: filename must stay agent-workspace-coverage.json.
+      # Needs secret BADGE_GIST_TOKEN and variable BADGE_GIST_ID; skipped silently without them.
+      - name: Update coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
+        with:
+          auth: ${{ secrets.BADGE_GIST_TOKEN }}
+          gistID: ${{ vars.BADGE_GIST_ID }}
+          filename: agent-workspace-coverage.json
+          label: coverage
+          message: ${{ steps.coverage_combine.outputs.total }}%
+          color: blue
+
+      - name: Coverage report
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            diff-cover coverage.xml \
+              --compare-branch=origin/${{ github.base_ref }} \
+              --format markdown:diff-coverage.md || true
+          fi
+          args=(--coverage-xml coverage.xml --output "$GITHUB_STEP_SUMMARY")
+          if [ -f diff-coverage.md ]; then args+=(--diff-report diff-coverage.md); fi
+          python tools/ci_coverage_summary.py "${args[@]}"

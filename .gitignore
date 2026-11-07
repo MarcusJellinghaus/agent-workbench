@@ -218,3 +218,28 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# VSCodeClaude session files (auto-generated)
+.vscodeclaude_status.txt
+.vscodeclaude_analysis.json
+.vscodeclaude_session.json
+.vscodeclaude_start.bat
+.vscodeclaude_start.sh
+
+# mcp-coder session and log files (required for the automated LLM rebase)
+.mcp-coder/
+/logs/
+.mcp_coder_verify.md
+
+# Lock files (regenerate with: uv sync)
+uv.lock
+
+# Architecture-check caches
+.import_linter_cache/
+.grimp_cache/
+
+# Windows reserved-name artifacts
+nul
+
+# Claude auto-memory files (session-local, not for version control)
+memory/
