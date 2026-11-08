@@ -1,6 +1,6 @@
 ## About this repo
 
-`agent-workspace` is a governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
+`agent-workbench` is a governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
 ## MCP Tools — mandatory
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Reinstall agent-workspace package in development mode (editable install)
+# Reinstall agent-workbench package in development mode (editable install)
 # Usage: source tools/reinstall_local.sh   (from project root; persists venv activation)
 #    or: bash tools/reinstall_local.sh     (does not persist activation to caller)
 
@@ -7,7 +7,7 @@
 (return 0 2>/dev/null) && _SOURCED=1 || _SOURCED=0
 
 echo "============================================="
-echo "agent-workspace Package Reinstallation"
+echo "agent-workbench Package Reinstallation"
 echo "============================================="
 echo ""
 
@@ -48,11 +48,11 @@ echo "[OK] Target environment: $VENV_DIR"
 echo ""
 
 echo "[1/5] Uninstalling existing packages..."
-uv pip uninstall agent-workspace mcp-coder mcp-tools-py mcp-workspace --python "$PY" 2>/dev/null || true
+uv pip uninstall agent-workbench mcp-coder mcp-tools-py mcp-workspace --python "$PY" 2>/dev/null || true
 echo "[OK] Packages uninstalled"
 
 echo ""
-echo "[2/5] Installing agent-workspace (this project) in editable mode..."
+echo "[2/5] Installing agent-workbench (this project) in editable mode..."
 if ! ( cd "$PROJECT_DIR" && uv pip install -e ".[dev]" --python "$PY" ); then
     echo "[FAIL] Installation failed!"
     [ "$_SOURCED" = "1" ] && return 1 || exit 1
@@ -81,27 +81,27 @@ echo "[OK] GitHub dependencies overridden from pyproject.toml"
 echo ""
 echo "[4/5] Verifying CLI entry points in venv..."
 
-if [ ! -x "$VENV_BIN/agent-workspace" ]; then
-    echo "[FAIL] agent-workspace not found in $VENV_BIN"
+if [ ! -x "$VENV_BIN/agent-workbench" ]; then
+    echo "[FAIL] agent-workbench not found in $VENV_BIN"
     echo "  The entry point was not installed into the virtual environment."
     [ "$_SOURCED" = "1" ] && return 1 || exit 1
 fi
-echo "[OK] agent-workspace found in $VENV_BIN"
+echo "[OK] agent-workbench found in $VENV_BIN"
 
 echo ""
 echo "[5/5] Verifying CLI functionality..."
-if ! "$VENV_BIN/agent-workspace" --help >/dev/null 2>&1; then
-    echo "[FAIL] agent-workspace CLI verification failed!"
+if ! "$VENV_BIN/agent-workbench" --help >/dev/null 2>&1; then
+    echo "[FAIL] agent-workbench CLI verification failed!"
     [ "$_SOURCED" = "1" ] && return 1 || exit 1
 fi
-echo "[OK] agent-workspace CLI works"
+echo "[OK] agent-workbench CLI works"
 
 echo ""
 echo "============================================="
 echo "Reinstallation completed successfully!"
 echo ""
 echo "Entry points installed in: $VENV_BIN"
-echo "  - agent-workspace"
+echo "  - agent-workbench"
 echo "============================================="
 echo ""
 

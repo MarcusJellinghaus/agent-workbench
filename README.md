@@ -1,4 +1,4 @@
-# agent-workspace
+# agent-workbench
 
 Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
@@ -20,7 +20,7 @@ servers) and activates the venv. On Linux/macOS: `source tools/reinstall_local.s
 Run the placeholder CLI:
 
 ```bat
-agent-workspace --name you
+agent-workbench --name you
 ```
 
 ## Quality checks

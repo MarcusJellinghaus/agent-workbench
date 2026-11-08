@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-REM Reinstall agent-workspace package in development mode
+REM Reinstall agent-workbench package in development mode
 REM Usage: call tools\reinstall_local.bat  (from project root)
 echo =============================================
-echo agent-workspace Package Reinstallation
+echo agent-workbench Package Reinstallation
 echo =============================================
 echo.
 
@@ -49,11 +49,11 @@ echo [OK] Target environment: !VENV_DIR!
 echo.
 
 echo [1/5] Uninstalling existing packages...
-uv pip uninstall agent-workspace mcp-coder mcp-tools-py mcp-workspace --python "!VENV_SCRIPTS!\python.exe" 2>nul
+uv pip uninstall agent-workbench mcp-coder mcp-tools-py mcp-workspace --python "!VENV_SCRIPTS!\python.exe" 2>nul
 echo [OK] Packages uninstalled
 
 echo.
-echo [2/5] Installing agent-workspace (this project) in editable mode...
+echo [2/5] Installing agent-workbench (this project) in editable mode...
 pushd "!PROJECT_DIR!"
 uv pip install -e ".[dev]" --python "!VENV_SCRIPTS!\python.exe"
 if !ERRORLEVEL! NEQ 0 (
@@ -87,28 +87,28 @@ echo [OK] GitHub dependencies overridden from pyproject.toml
 echo.
 echo [4/5] Verifying CLI entry points in venv...
 
-if not exist "!VENV_SCRIPTS!\agent-workspace.exe" (
-    echo [FAIL] agent-workspace.exe not found in !VENV_SCRIPTS!
+if not exist "!VENV_SCRIPTS!\agent-workbench.exe" (
+    echo [FAIL] agent-workbench.exe not found in !VENV_SCRIPTS!
     echo   The entry point was not installed into the virtual environment.
     exit /b 1
 )
-echo [OK] agent-workspace.exe found in !VENV_SCRIPTS!
+echo [OK] agent-workbench.exe found in !VENV_SCRIPTS!
 
 echo.
 echo [5/5] Verifying CLI functionality...
-"!VENV_SCRIPTS!\agent-workspace.exe" --help >nul 2>&1
+"!VENV_SCRIPTS!\agent-workbench.exe" --help >nul 2>&1
 if !ERRORLEVEL! NEQ 0 (
-    echo [FAIL] agent-workspace CLI verification failed!
+    echo [FAIL] agent-workbench CLI verification failed!
     exit /b 1
 )
-echo [OK] agent-workspace CLI works
+echo [OK] agent-workbench CLI works
 
 echo.
 echo =============================================
 echo Reinstallation completed successfully!
 echo.
 echo Entry points installed in: !VENV_SCRIPTS!
-echo   - agent-workspace.exe
+echo   - agent-workbench.exe
 echo =============================================
 echo.
 

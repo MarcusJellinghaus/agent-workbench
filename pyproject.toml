@@ -3,7 +3,7 @@ requires = ["setuptools>=77", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-workspace"
+name = "agent-workbench"
 dynamic = ["version"]
 description = "Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging"
 authors = [
@@ -36,7 +36,7 @@ coverage = [
     "diff-cover",
 ]
 dev = [
-    "agent-workspace[typecheck,coverage]",
+    "agent-workbench[typecheck,coverage]",
     "mcp-coder",           # file-size check, workflows
     "mcp-workspace",       # MCP file tools for Claude Code
     "mcp-tools-py",        # MCP pylint/mypy/pytest/vulture/... tools; ships pylint
@@ -52,11 +52,11 @@ dev = [
 ]
 
 [project.scripts]
-agent-workspace = "agent_workspace.interfaces.cli:main"
+agent-workbench = "agent_workbench.interfaces.cli:main"
 
 [project.urls]
-"Homepage" = "https://github.com/MarcusJellinghaus/agent-workspace"
-"Bug Tracker" = "https://github.com/MarcusJellinghaus/agent-workspace/issues"
+"Homepage" = "https://github.com/MarcusJellinghaus/agent-workbench"
+"Bug Tracker" = "https://github.com/MarcusJellinghaus/agent-workbench/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -166,10 +166,10 @@ convention = "google"
 
 # Run as `deptry src` (tools/deptry_check.sh) — src only; tests/ and tools/ are not scanned.
 [tool.deptry]
-known_first_party = ["agent_workspace"]
+known_first_party = ["agent_workbench"]
 # Packages in these extras are tooling, not runtime deps: no DEP002 for them,
 # but importing one from src/ is still reported (DEP004). deptry does not expand
-# the `agent-workspace[typecheck,coverage]` self-reference in `dev`, so name all three.
+# the `agent-workbench[typecheck,coverage]` self-reference in `dev`, so name all three.
 optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
 
 [tool.mcp-tools-py]
@@ -187,7 +187,7 @@ check_type_hints = true
 extras = "dev"
 # Run by `mcp-coder install` after provisioning; any failure fails the install.
 post_install_checks = [
-    ["agent-workspace", "--version"],
+    ["agent-workbench", "--version"],
     ["mcp-workspace", "--version"],
     ["mcp-tools-py", "--version"],
 ]

@@ -5,7 +5,7 @@
 # Run with: tach check (or tools/tach_check.sh / .bat)
 # =============================================================================
 
-exclude = ["**/__pycache__", "build/", "dist/", ".venv/", "*.egg-info/", "src/agent_workspace/__main__.py"]
+exclude = ["**/__pycache__", "build/", "dist/", ".venv/", "*.egg-info/", "src/agent_workbench/__main__.py"]
 source_roots = ["src"]
 # exact = false: depends_on lists allowed, not required, dependencies.
 exact = false
@@ -22,40 +22,40 @@ layers = [
 ]
 
 [[modules]]
-path = "agent_workspace.apps"
+path = "agent_workbench.apps"
 layer = "apps"
 depends_on = [
-    { path = "agent_workspace.interfaces" },
-    { path = "agent_workspace.services" },
-    { path = "agent_workspace.adapters" },
-    { path = "agent_workspace.core" },
+    { path = "agent_workbench.interfaces" },
+    { path = "agent_workbench.services" },
+    { path = "agent_workbench.adapters" },
+    { path = "agent_workbench.core" },
 ]
 
 [[modules]]
-path = "agent_workspace.interfaces"
+path = "agent_workbench.interfaces"
 layer = "interfaces"
 depends_on = [
-    { path = "agent_workspace.services" },
-    { path = "agent_workspace.adapters" },
-    { path = "agent_workspace.core" },
+    { path = "agent_workbench.services" },
+    { path = "agent_workbench.adapters" },
+    { path = "agent_workbench.core" },
 ]
 
 [[modules]]
-path = "agent_workspace.services"
+path = "agent_workbench.services"
 layer = "services"
 depends_on = [
-    { path = "agent_workspace.adapters" },
-    { path = "agent_workspace.core" },
+    { path = "agent_workbench.adapters" },
+    { path = "agent_workbench.core" },
 ]
 
 [[modules]]
-path = "agent_workspace.adapters"
+path = "agent_workbench.adapters"
 layer = "adapters"
 depends_on = [
-    { path = "agent_workspace.core" },
+    { path = "agent_workbench.core" },
 ]
 
 [[modules]]
-path = "agent_workspace.core"
+path = "agent_workbench.core"
 layer = "core"
 depends_on = []

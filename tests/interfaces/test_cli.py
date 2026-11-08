@@ -1,6 +1,6 @@
 import pytest
 
-from agent_workspace.interfaces.cli import main
+from agent_workbench.interfaces.cli import main
 
 
 def test_main_prints_greeting(capsys: pytest.CaptureFixture[str]) -> None:
@@ -17,4 +17,4 @@ def test_version_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.startswith("agent-workspace ")
+    assert capsys.readouterr().out.startswith("agent-workbench ")
