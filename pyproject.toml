@@ -36,7 +36,7 @@ dev = [
     "mcp-workspace",       # MCP file tools for Claude Code
     "mcp-tools-py",        # MCP pylint/mypy/pytest/vulture/... tools; ships pylint
     "pylint",
-    "ruff~=0.17.2",        # pinned for stable rule/format output
+    "ruff~=0.17.3",        # pinned for stable rule/format output
     "tach>=0.35.0",
     "deptry>=0.25.1",
     "import-linter>=2.0",
