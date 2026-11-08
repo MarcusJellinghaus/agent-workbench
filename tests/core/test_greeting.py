@@ -1,6 +1,6 @@
 import pytest
 
-from agent_workspace.core.greeting import greet
+from agent_workbench.core.greeting import greet
 
 
 def test_greet_default() -> None:

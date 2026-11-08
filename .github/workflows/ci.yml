@@ -172,7 +172,7 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.unit
         run: |
-          pytest --version && pytest -m 'not integration' --cov=src/agent_workspace --cov-report= --junitxml=unit-tests.xml
+          pytest --version && pytest -m 'not integration' --cov=src/agent_workbench --cov-report= --junitxml=unit-tests.xml
 
       - name: Upload coverage data
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -218,7 +218,7 @@ jobs:
           coverage xml -o coverage.xml
           echo "total=$(coverage report --format=total)" >> "$GITHUB_OUTPUT"
 
-      # The gist is shared with mcp_coder: filename must stay agent-workspace-coverage.json.
+      # The gist is shared with mcp_coder: filename must stay repo-specific.
       # Needs secret BADGE_GIST_TOKEN and variable BADGE_GIST_ID; skipped silently without them.
       - name: Update coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -227,7 +227,7 @@ jobs:
         with:
           auth: ${{ secrets.BADGE_GIST_TOKEN }}
           gistID: ${{ vars.BADGE_GIST_ID }}
-          filename: agent-workspace-coverage.json
+          filename: agent-workbench-coverage.json
           label: coverage
           message: ${{ steps.coverage_combine.outputs.total }}%
           color: blue

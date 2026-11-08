@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT_PACKAGE = "agent_workspace"
+ROOT_PACKAGE = "agent_workbench"
 
 
 @dataclass
@@ -53,11 +53,11 @@ class CoverageSummary:
 def top_level_package_name(full_name: str) -> str:
     """Bucket a Cobertura package name under its top-level segment.
 
-    ``coverage xml`` for ``--cov=src/agent_workspace`` reports package names
-    relative to that measured root, dropping the ``agent_workspace`` prefix:
+    ``coverage xml`` for ``--cov=src/agent_workbench`` reports package names
+    relative to that measured root, dropping the ``agent_workbench`` prefix:
     ``interfaces.cli`` -> ``interfaces``. The root package itself (loose
     top-level modules like ``__main__.py``) is reported as ``.``, which buckets
-    into the readable ``agent_workspace`` row.
+    into the readable ``agent_workbench`` row.
     """
     if full_name == ".":
         return ROOT_PACKAGE

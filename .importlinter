@@ -7,7 +7,7 @@
 
 [importlinter]
 root_packages =
-    agent_workspace
+    agent_workbench
     tests
 root_package_paths =
     src
@@ -20,29 +20,29 @@ include_external_packages = True
 name = Layered Architecture
 type = layers
 layers =
-    agent_workspace.apps
-    agent_workspace.interfaces
-    agent_workspace.services
-    agent_workspace.adapters
-    agent_workspace.core
+    agent_workbench.apps
+    agent_workbench.interfaces
+    agent_workbench.services
+    agent_workbench.adapters
+    agent_workbench.core
 
 # Core holds the domain model only: no I/O-facing layer may leak into it.
 [importlinter:contract:core_independence]
 name = Core Independence
 type = forbidden
 source_modules =
-    agent_workspace.core
+    agent_workbench.core
 forbidden_modules =
-    agent_workspace.adapters
-    agent_workspace.services
-    agent_workspace.interfaces
-    agent_workspace.apps
+    agent_workbench.adapters
+    agent_workbench.services
+    agent_workbench.interfaces
+    agent_workbench.apps
 
 # Production code never imports from tests.
 [importlinter:contract:no_test_imports_in_source]
 name = Source Code Independence from Tests
 type = forbidden
 source_modules =
-    agent_workspace
+    agent_workbench
 forbidden_modules =
     tests
