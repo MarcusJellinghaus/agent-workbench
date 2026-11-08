@@ -25,7 +25,7 @@ dependencies = []
 # Lean set for the CI `mypy` job (`pip install .[typecheck]`): mypy plus what
 # `mypy --strict src tests` imports. Runtime deps come from the project itself.
 typecheck = [
-    "mypy>=1.13.0",
+    "mypy>=2.4.1",
     # <9.3: under pytest 9.2.0 + pytest-xdist 3.8.0 the workers finish with work
     # pending (xdist INTERNALERROR `assert not crashitem`) — same pin as mcp_coder.
     "pytest<9.3",
