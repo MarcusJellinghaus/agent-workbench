@@ -30,8 +30,13 @@ typecheck = [
     # pending (xdist INTERNALERROR `assert not crashitem`) — same pin as mcp_coder.
     "pytest<9.3",
 ]
+# Lean set for the CI `coverage` job: combine coverage data, diff coverage report.
+coverage = [
+    "coverage",
+    "diff-cover",
+]
 dev = [
-    "agent-workspace[typecheck]",
+    "agent-workspace[typecheck,coverage]",
     "mcp-coder",           # file-size check, workflows
     "mcp-workspace",       # MCP file tools for Claude Code
     "mcp-tools-py",        # MCP pylint/mypy/pytest/vulture/... tools; ships pylint
@@ -44,7 +49,6 @@ dev = [
     "pytest-asyncio",      # asyncio_mode = "auto"; Chainlit/LangGraph code is async
     "pytest-xdist",        # addopts uses `-n auto`
     "pytest-cov",
-    "diff-cover",
 ]
 
 [project.scripts]
@@ -165,8 +169,8 @@ convention = "google"
 known_first_party = ["agent_workspace"]
 # Packages in these extras are tooling, not runtime deps: no DEP002 for them,
 # but importing one from src/ is still reported (DEP004). deptry does not expand
-# the `agent-workspace[typecheck]` self-reference in `dev`, so name both.
-optional_dependencies_dev_groups = ["dev", "typecheck"]
+# the `agent-workspace[typecheck,coverage]` self-reference in `dev`, so name all three.
+optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
 
 [tool.mcp-tools-py]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)
