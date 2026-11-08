@@ -9,7 +9,10 @@ updates:
     labels:
       - "dependencies"
       - "python"
-    versioning-strategy: "auto"
+    # widen: only touch a requirement when a new release falls outside it
+    # (e.g. ruff~=0.17 → 0.18, pytest<9.3 → 9.3). "auto" treats this
+    # unpublished project as an app and raises every minimum on each release.
+    versioning-strategy: "widen"
     allow:
       - dependency-type: "all"
     cooldown:
