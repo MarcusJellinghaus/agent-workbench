@@ -1,0 +1,200 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-workspace"
+dynamic = ["version"]
+description = "Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging"
+authors = [
+    {name = "Marcus Jellinghaus"},
+]
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Lean set for the CI `mypy` job (`pip install .[typecheck]`): mypy plus what
+# `mypy --strict src tests` imports. Runtime deps come from the project itself.
+typecheck = [
+    "mypy>=1.13.0",
+    # <9.3: under pytest 9.2.0 + pytest-xdist 3.8.0 the workers finish with work
+    # pending (xdist INTERNALERROR `assert not crashitem`) — same pin as mcp_coder.
+    "pytest<9.3",
+]
+dev = [
+    "agent-workspace[typecheck]",
+    "mcp-coder",           # file-size check, workflows
+    "mcp-workspace",       # MCP file tools for Claude Code
+    "mcp-tools-py",        # MCP pylint/mypy/pytest/vulture/... tools; ships pylint
+    "pylint",
+    "ruff~=0.17.2",        # pinned for stable rule/format output
+    "tach>=0.35.0",
+    "deptry>=0.25.1",
+    "import-linter>=2.0",
+    "vulture>=2.14",
+    "pytest-asyncio",      # asyncio_mode = "auto"; Chainlit/LangGraph code is async
+    "pytest-xdist",        # addopts uses `-n auto`
+    "pytest-cov",
+    "diff-cover",
+]
+
+[project.scripts]
+agent-workspace = "agent_workspace.interfaces.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/MarcusJellinghaus/agent-workspace"
+"Bug Tracker" = "https://github.com/MarcusJellinghaus/agent-workspace/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.setuptools_scm]
+tag_regex = '^(?P<version>\d+\.\d+\.\d+)$'
+# Version is automatically determined from git tags
+# Tag format: 0.1.0 -> version 0.1.0
+# Between releases: 0.1.0.devN+gHASH (includes commit count and hash)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+# --strict-markers: unknown markers are errors (catches typos)
+# -n auto: run tests in parallel using all available CPUs
+# -p no:tach: disable tach plugin (noisy output about unaffected tests)
+addopts = ["--strict-markers", "--tb=short", "-n", "auto", "-p", "no:tach"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: general integration tests requiring external resources",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+mypy_path = "src"
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["pytest.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+# Unreachable false positives with assertions; mocked attributes in tests
+disable_error_code = ["unreachable", "union-attr"]
+
+[tool.pylint.messages_control]
+disable = [
+    "C",       # conventions — not enabled in this project
+    "R",       # refactor suggestions — not enabled in this project
+    "W1203",   # logging-fstring-interpolation — project uses f-strings for readability
+    "W0621",   # redefined-outer-name — standard pytest fixture pattern
+    "W0511",   # fixme/TODO — informational only, not a quality gate
+    "W0212",   # protected-access — legitimate in tests and controlled src usage
+    "W0613",   # unused-argument — pytest fixtures injected by name
+    "W0611",   # unused-import — owned by ruff F401
+    "W0404",   # reimported — reimports across test functions
+    "W0718",   # broad-exception-caught — intentional catch-all at CLI/app boundaries
+    "W0706",   # try-except-raise — explicit re-raise for clarity in error chains
+    "W4903",   # deprecated-argument — tracked for future cleanup
+]
+enable = ["R0401"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.format]
+
+[tool.ruff.lint]
+# preview needed for DOC rules (pydoclint)
+#
+# TRY, EM, PL (except PLW1510/PLE2502) rejected — see mcp_coder #1172, #1181.
+preview = true
+explicit-preview-rules = true   # preview rules fire only when selected by exact code
+select = [
+    "D",
+    "ANN",
+    # DOC rules are preview-only; with explicit-preview-rules they must be
+    # listed by exact code — a bare "DOC" prefix silently enforces nothing.
+    "DOC201", "DOC202", "DOC402", "DOC403", "DOC501", "DOC502",
+    "SIM",
+    # SIM905 is preview-only; see explicit-preview-rules note above.
+    "SIM905",
+    "E",
+    "F",
+    "C4", "B",
+    "S",
+    "UP",
+    "I",
+    # PLW1510 only: the PL prefix would re-enable pylint's disabled R category (PLR09xx).
+    "PLW1510",
+    # PLE2502 bidirectional-unicode: covers bandit B613 (trojansource), which has no S port.
+    "PLE2502",
+]
+ignore = [
+    "D107",  # missing docstring in __init__ method (redundant with class docstring)
+    "ANN401",  # Any is correct at library/CLI boundaries; mypy strict covers the rest
+    "E501",  # line length is owned by the formatter (ruff format); not re-checked here
+]
+
+[tool.ruff.lint.per-file-ignores]
+# tests: assert is the pytest idiom (S101); S105/S106/S108 fire on fake
+# credentials and "/tmp/..." literals used as test data, never opened.
+"tests/**/*.py" = ["D", "DOC", "SIM117", "S101", "S105", "S106", "S108"]
+# tools: standalone CI scripts copied from mcp_coder; Returns sections not required.
+"tools/**" = ["DOC201"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# Run as `deptry src` (tools/deptry_check.sh) — src only; tests/ and tools/ are not scanned.
+[tool.deptry]
+known_first_party = ["agent_workspace"]
+# Packages in these extras are tooling, not runtime deps: no DEP002 for them,
+# but importing one from src/ is still reported (DEP004). deptry does not expand
+# the `agent-workspace[typecheck]` self-reference in `dev`, so name both.
+optional_dependencies_dev_groups = ["dev", "typecheck"]
+
+[tool.mcp-tools-py]
+# Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)
+formatter = "ruff"
+
+[tool.mcp-coder]
+format_code = true
+
+[tool.mcp-coder.implement]
+check_type_hints = true
+
+[tool.mcp-coder.install]
+# Extras `mcp-coder install` passes to `uv` when provisioning this repo.
+extras = "dev"
+# Run by `mcp-coder install` after provisioning; any failure fails the install.
+post_install_checks = [
+    ["agent-workspace", "--version"],
+    ["mcp-workspace", "--version"],
+    ["mcp-tools-py", "--version"],
+]
+
+[tool.mcp-coder.install-from-github]
+# GitHub HEAD versions, installed in the same uv call as the project so they win
+# over PyPI (CI and tools/reinstall_local.*). Empty: PyPI releases are used.
+packages = [
+    # "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
+    # "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
+    # "mcp-tools-py @ git+https://github.com/MarcusJellinghaus/mcp-tools-py.git",
+]
+packages-no-deps = [
+]

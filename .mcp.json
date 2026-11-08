@@ -1,0 +1,54 @@
+{
+  "mcpServers": {
+    "mcp-tools-py": {
+      "type": "stdio",
+      "command": "${MCP_CODER_VENV_PATH}\\mcp-tools-py.exe",
+      "args": [
+        "--project-dir",
+        "${MCP_CODER_PROJECT_DIR}",
+        "--python-executable",
+        "${VIRTUAL_ENV}\\Scripts\\python.exe",
+        "--venv-path",
+        "${VIRTUAL_ENV}",
+        "--test-folder",
+        "tests",
+        "--log-level",
+        "INFO"
+      ],
+      "env": {
+        "PYTHONPATH": "${MCP_CODER_PROJECT_DIR}/src"
+      },
+      "alwaysLoad": true
+    },
+    "mcp-workspace": {
+      "type": "stdio",
+      "command": "${MCP_CODER_VENV_PATH}\\mcp-workspace.exe",
+      "args": [
+        "--project-dir",
+        "${MCP_CODER_PROJECT_DIR}",
+        "--log-level",
+        "INFO",
+        "--file-size-limit",
+        "750",
+        "--reference-project",
+        "name=mcp_coder,path=${USERPROFILE}\\Documents\\GitHub\\mcp_coder,url=https://github.com/MarcusJellinghaus/mcp_coder",
+        "--reference-project",
+        "name=mcp-workspace,path=${USERPROFILE}\\Documents\\GitHub\\mcp-workspace,url=https://github.com/MarcusJellinghaus/mcp-workspace",
+        "--reference-project",
+        "name=mcp-config,path=${USERPROFILE}\\Documents\\GitHub\\mcp-config,url=https://github.com/MarcusJellinghaus/mcp-config",
+        "--reference-project",
+        "name=mcp-coder-utils,path=${USERPROFILE}\\Documents\\GitHub\\mcp-coder-utils,url=https://github.com/MarcusJellinghaus/mcp-coder-utils",
+        "--reference-project",
+        "name=mcp-tools-py,path=${USERPROFILE}\\Documents\\GitHub\\mcp-tools-py,url=https://github.com/MarcusJellinghaus/mcp-tools-py",
+        "--reference-project",
+        "name=mcp-tools-sql,path=${USERPROFILE}\\Documents\\GitHub\\mcp-tools-sql,url=https://github.com/MarcusJellinghaus/mcp-tools-sql",
+        "--reference-project",
+        "name=AutoRunner,path=${USERPROFILE}\\Documents\\GitHub\\AutoRunner,url=https://github.com/MarcusJellinghaus/AutoRunner"
+      ],
+      "env": {
+        "PYTHONPATH": "${MCP_CODER_VENV_DIR}\\Lib\\"
+      },
+      "alwaysLoad": true
+    }
+  }
+}

@@ -1,0 +1,48 @@
+# =============================================================================
+# Import Linter Configuration
+# =============================================================================
+# Enforces the layering from docs/architecture/architecture.md.
+# Run with: lint-imports (or tools/lint_imports.sh / .bat)
+# =============================================================================
+
+[importlinter]
+root_packages =
+    agent_workspace
+    tests
+root_package_paths =
+    src
+    .
+include_external_packages = True
+
+# Dependencies flow downward only:
+#   apps -> interfaces -> services -> adapters -> core
+[importlinter:contract:layered_architecture]
+name = Layered Architecture
+type = layers
+layers =
+    agent_workspace.apps
+    agent_workspace.interfaces
+    agent_workspace.services
+    agent_workspace.adapters
+    agent_workspace.core
+
+# Core holds the domain model only: no I/O-facing layer may leak into it.
+[importlinter:contract:core_independence]
+name = Core Independence
+type = forbidden
+source_modules =
+    agent_workspace.core
+forbidden_modules =
+    agent_workspace.adapters
+    agent_workspace.services
+    agent_workspace.interfaces
+    agent_workspace.apps
+
+# Production code never imports from tests.
+[importlinter:contract:no_test_imports_in_source]
+name = Source Code Independence from Tests
+type = forbidden
+source_modules =
+    agent_workspace
+forbidden_modules =
+    tests

@@ -1,0 +1,61 @@
+# =============================================================================
+# Tach Configuration - Architectural Boundary Enforcement
+# =============================================================================
+# Mirrors the layers in docs/architecture/architecture.md and .importlinter.
+# Run with: tach check (or tools/tach_check.sh / .bat)
+# =============================================================================
+
+exclude = ["**/__pycache__", "build/", "dist/", ".venv/", "*.egg-info/", "src/agent_workspace/__main__.py"]
+source_roots = ["src"]
+# exact = false: depends_on lists allowed, not required, dependencies.
+exact = false
+forbid_circular_dependencies = true
+ignore_type_checking_imports = true
+
+# Highest to lowest
+layers = [
+    "apps",
+    "interfaces",
+    "services",
+    "adapters",
+    "core",
+]
+
+[[modules]]
+path = "agent_workspace.apps"
+layer = "apps"
+depends_on = [
+    { path = "agent_workspace.interfaces" },
+    { path = "agent_workspace.services" },
+    { path = "agent_workspace.adapters" },
+    { path = "agent_workspace.core" },
+]
+
+[[modules]]
+path = "agent_workspace.interfaces"
+layer = "interfaces"
+depends_on = [
+    { path = "agent_workspace.services" },
+    { path = "agent_workspace.adapters" },
+    { path = "agent_workspace.core" },
+]
+
+[[modules]]
+path = "agent_workspace.services"
+layer = "services"
+depends_on = [
+    { path = "agent_workspace.adapters" },
+    { path = "agent_workspace.core" },
+]
+
+[[modules]]
+path = "agent_workspace.adapters"
+layer = "adapters"
+depends_on = [
+    { path = "agent_workspace.core" },
+]
+
+[[modules]]
+path = "agent_workspace.core"
+layer = "core"
+depends_on = []
