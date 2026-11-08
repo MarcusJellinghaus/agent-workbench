@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-Report vulnerabilities through GitHub private vulnerability reporting only: [report a vulnerability](https://github.com/MarcusJellinghaus/agent-workspace/security/advisories/new) (or, in this repository, **Security → Report a vulnerability**).
+Report vulnerabilities through GitHub private vulnerability reporting only: [report a vulnerability](https://github.com/MarcusJellinghaus/agent-workbench/security/advisories/new) (or, in this repository, **Security → Report a vulnerability**).
 
 Do not open public issues for security problems.
 
@@ -18,13 +18,13 @@ Only the latest commit on `main` receives security fixes.
 
 In scope are bypasses of intended restrictions, such as:
 
-- permission checks (using an operation, data source, schema or table above the user's level)
-- tool exposure (the model reaching a tool the user may not use)
+- tool permissions (the model calling a `deny` tool, or an `ask` tool without confirmation)
+- tool exposure (the model seeing a tool whose mode is `deny`)
 - workspace confinement (reading or writing outside the configured project folder)
 - SQL injection through tool parameters, or running unapproved queries
 - credential handling (credentials leaking into logs, tool output, prompts or error messages)
-- audit logging (a tool call that leaves no log entry)
+- tool-call logging (a tool call that leaves no log entry)
 
-## Threat Model
+## Security Design
 
-User prompts, model output, tool arguments and data content (e.g. table comments, file contents) are untrusted input. agent-workspace must enforce its permissions and confinement on the server side regardless of what the model requests.
+Trust boundaries, controls, threat model and residual risks: [`docs/security/security_design.md`](docs/security/security_design.md).

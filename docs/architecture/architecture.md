@@ -1,10 +1,10 @@
-# agent-workspace Architecture
+# agent-workbench Architecture
 
-**Framework**: Arc42 (condensed) | **Version**: 0.1 | **Status**: Skeleton — milestone 1 not started
+**Framework**: Arc42 (condensed) | **Version**: 0.2 | **Status**: Skeleton — milestone 1 planned
 **Maintainer**: Marcus Jellinghaus
 
-> This document is a starting point derived from the project concept. Sections marked
-> *planned* describe intent, not code. Update it as each milestone lands.
+> Sections marked *planned* describe intent, not code. Update this document as each
+> epic lands. Security controls and the threat model: [`docs/security/security_design.md`](../security/security_design.md).
 
 ---
 
@@ -12,45 +12,46 @@
 
 ### Purpose
 
-A small, governed web LLM client. The model reaches company data only through a fixed,
-vetted set of Python operations (later an internal API), with server-side permission
-checks and full audit logging.
+A small, governed web LLM client that runs locally on a Windows dev machine. The model
+reaches company data only through configured tools from existing Python packages
+(mcp-tools-sql, mcp-workspace), used through their Python API – no MCP. A permission
+mode per tool decides what the model may call; every tool call is logged.
 
 ### Key Quality Goals
 
-- **Governance**: the LLM never touches a database or file share directly; it can only
-  request allow-listed operations.
-- **Least privilege**: tools the user may not use are never shown to the model; every
-  call is re-checked on the server side.
-- **Auditability**: every tool call is logged with user, operation, parameters, result
-  size and duration, joined to the LLM-layer log by one request ID.
-- **Reviewability**: a small codebase Security can read end to end.
+- **Governance**: the model never gets a database connection or credentials; it can only
+  request configured tools.
+- **Least privilege by configuration**: a permission mode per tool (`allow`, `ask`,
+  `ask_session`, `deny`); unlisted tools are `deny` and are not shown to the model.
+- **Auditability**: every tool call is logged with user, tool, parameters, result size
+  and duration.
+- **Reviewability**: a small codebase and a minimal set of core dependencies.
 
 ### Design Principles
 
-- **The design, not the protocol, is the security boundary.** One vetted service,
-  managed credentials, server-side permission checks, logging. The same operation core
-  can be exposed as plain Python, REST, or MCP later.
-- **Read-only by default.** Writes only through admin-configured operations with human
-  confirmation (milestone 5).
-- **Bounded output.** Row limits and timeouts on every data operation.
-- **Swappable identity.** Connection handling is abstracted so user delegation
-  (Kerberos) can be added without redesign.
+- **The design, not the protocol, is the security boundary.** Vetted tools, permission
+  modes and logging – the same tool definitions serve MCP servers and this app.
+- **Configuration decides, read-only by default.** Writes only through named, parameterised
+  update statements the user configures and enables.
+- **Bounded.** A step limit per turn; row limits on data tools. Query timeouts, fetch limits and a maximum file read size are planned changes in the tool packages.
+- **Configured optionals.** LLM providers and tool packages are optional extras, imported
+  only when configured.
+- **Reuse, don't rebuild.** agent-workbench defines no tools of its own (except batch
+  control in M2); it copies the LangChain model layer from mcp_coder.
 
 ### Stakeholders
 
-- **Analysts**: explore metadata, analyse data, write reports, run batch jobs.
-- **Security**: reviews the data service and permission model.
-- **Admins** (milestone 4+): manage permissions and approve queries.
+- **Users** (developer / analyst): explore metadata, analyse data, write reports, run batch jobs.
+- **Security**: reviews the security design.
 
 ---
 
 ## 2. Architecture Constraints
 
-- Python 3.11+
-- Milestones 1–2 run on a Windows dev machine as the developer (Windows authentication
-  to SQL Server via pyodbc + ODBC Driver 18). The developer's rights may exceed
-  read-only, so tools must be read-only in code.
+- Python 3.11+.
+- Milestones 1–2 run locally on a Windows dev machine, single user, as the developer.
+  Database access uses the developer's Windows identity, whose rights may exceed
+  read-only – the tool configuration, not the login, is the boundary.
 - Any LangChain-supported LLM provider; none is fixed.
 - Developed with mcp-coder workflows (see `.claude/`, `pyproject.toml`).
 
@@ -59,56 +60,59 @@ checks and full audit logging.
 ## 3. Context & Scope
 
 ```
-┌────────┐  browser  ┌──────────────────────────┐  plain Python (M1)  ┌──────────────────┐
-│  User  │──────────▶│  Chat UI (Chainlit)      │  REST (M3+)         │  Operations      │
-└────────┘           │  Agent (LangGraph)       │────────────────────▶│  (SQL, Workspace)│
-                     └───────────┬──────────────┘                     └────────┬─────────┘
-                                 │ LangChain                                   │
-                                 ▼                                             ▼
-                          ┌─────────────┐                            ┌──────────────────┐
-                          │ LLM provider│                            │ SQL Server, files│
-                          └─────────────┘                            └──────────────────┘
+┌────────┐ localhost ┌──────────────────────────┐ in-process, Python API ┌────────────────┐
+│  User  │──────────▶│ Chat UI (Chainlit)       │───────────────────────▶│ mcp-tools-sql  │──▶ SQL Server
+└────────┘           │ Agent (LangGraph)        │                        │ mcp-workspace  │──▶ workspace folder
+                     │ Permission check, logging│                        └────────────────┘
+                     └───────────┬──────────────┘
+                                 │ LangChain (copied model layer)
+                                 ▼
+                          ┌─────────────┐
+                          │ LLM provider│
+                          └─────────────┘
 ```
+
+Configuration (agent-workbench config, mcp-tools-sql config) and the user app-data folder
+(logs, session database) lie outside the workspace folder.
 
 ---
 
 ## 4. Solution Strategy
 
-| Component | Technology | Milestone |
+| Component | Technology | Epic |
 |---|---|---|
-| Chat UI | Chainlit (tool calls visible, session history) | 1 |
-| LLM orchestration | LangGraph + LangChain chat models; provider config from mcp-coder | 1 |
-| Tools | Functions from the SQL and Workspace MCP packages, registered as LangGraph tools | 1 |
-| Sessions | LangGraph checkpointer + Chainlit data layer on SQLite | 1 |
-| Data API | FastAPI with an operation registry; the only holder of credentials | 3 |
-| Admin GUI | NiceGUI or FastAPI + React | 4 |
-
-Milestone 1 is one app; the tool code lives in its own layer so it can be split into
-the data API later.
+| Chat UI | Chainlit: tool calls visible, session history, Reload button, confirmation dialog | M1 – Working chat UI |
+| LLM orchestration | LangGraph + LangChain chat models; model layer copied from mcp_coder (after a light refactor there) | M1 – Working chat UI |
+| Sessions | LangGraph checkpointer + Chainlit data layer on SQLite | M1 – Working chat UI |
+| `verify` command | Config and LLM provider checks; extended with tool and permission checks | M1 – both epics |
+| Tools | Tool specs (`ToolSpec`, contract in mcp-coder-utils) exported by mcp-tools-sql and mcp-workspace, turned into LangChain tools | M1 – Tools without MCP |
+| Tool permissions | Mode per tool / group; confirmation dialog | M1 – Tools without MCP |
+| Batch runs | Sequential repeat loop with stop checks | M2 |
 
 ### How a tool call works
 
-1. The app gives the model each permitted tool's name, description and JSON schema.
+1. The app gives the model the name, description and JSON schema of every tool whose
+   mode is not `deny`.
 2. The model replies with a structured request, e.g. `read_columns(table="Customers")`.
-3. LangGraph runs the matching function — locally in M1, over HTTP with user token and
-   request ID from M3.
-4. The function checks permissions, runs, logs, returns JSON.
-5. The result goes back to the model.
+3. The permission check applies the tool's mode; for `ask` / `ask_session` the user
+   confirms in Chainlit.
+4. The arguments are validated, the function runs in-process, the call is logged.
+5. The result goes back to the model, which answers or calls another tool.
 
 ---
 
 ## 5. Building Block View
 
-Package: `src/agent_workspace/`. Dependencies flow downward only; enforced by
+Package: `src/agent_workbench/`. Dependencies flow downward only; enforced by
 `.importlinter` and `tach.toml`.
 
-| Layer | Package | Responsibility | Status |
+| Layer | Package | Responsibility (planned) | Status |
 |---|---|---|---|
-| apps | `agent_workspace.apps` | LangGraph agent, Chainlit UI, batch runner | empty |
-| interfaces | `agent_workspace.interfaces` | CLI (`cli.py`), later the FastAPI data API | CLI placeholder |
-| services | `agent_workspace.services` | Permission checks, audit logging, query approval | empty |
-| adapters | `agent_workspace.adapters` | SQL Server, file system, auth | empty |
-| core | `agent_workspace.core` | Permission model, config, domain types | `greeting.py` placeholder |
+| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | empty |
+| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI placeholder |
+| services | `agent_workbench.services` | Permission check and confirmation, tool-call logging, toolset building and reload | empty |
+| adapters | `agent_workbench.adapters` | Copied LLM model layer, tool-spec → LangChain tool adapter, lazy loading of tool packages | empty |
+| core | `agent_workbench.core` | Config models, permission modes, domain types | `greeting.py` placeholder |
 
 Additional contracts:
 
@@ -124,62 +128,66 @@ adds a dependency also adds its import-linter `forbidden` contract
 | Layer | Allowed third-party libraries |
 |---|---|
 | core | `pydantic` only (models, config); `pydantic` is allowed in every layer |
-| adapters | `pyodbc`, SQL and Workspace MCP packages (tool functions), `smbprotocol`, auth / Kerberos libraries |
-| services | none of its own; uses core and adapters (permission-checking wrappers, audit) |
-| interfaces | `fastapi`, `uvicorn` (milestone 3) |
-| apps | `langchain-*`, `langgraph`, `chainlit`, `nicegui` |
+| adapters | `langchain-core`, LangChain provider packages (optional), `httpx`, `truststore`, mcp-tools-sql and mcp-workspace (optional, lazy), `mcp-coder-utils` |
+| services | `mcp-coder-utils` (redaction, logging) |
+| interfaces | none beyond the standard library |
+| apps | `langgraph`, `langchain-core`, `chainlit` |
+
+Core dependencies: `pydantic`, `chainlit`, `langgraph`, `langchain-core`, `httpx`,
+`truststore`, `mcp-coder-utils`, plus the session-store packages (SQLite checkpointer,
+Chainlit data layer). Everything else is an extra: `[openai]`, `[anthropic]`, `[gemini]`,
+`[ollama]`, `[sql]`, `[sql-mssql]`, `[workspace]`.
 
 ### Placeholder code
 
-`core/greeting.py` and `interfaces/cli.py` (entry point `agent-workspace`) exist only
+`core/greeting.py` and `interfaces/cli.py` (entry point `agent-workbench`) exist only
 to exercise the toolchain. Remove them when real code lands.
 
 ---
 
 ## 6. Cross-cutting Concepts
 
-### Permission model (planned)
+### Tool permissions (planned)
 
-Levels per data source, schema and table:
-
-1. Schema only — schemas, tables, columns, types.
-2. Column statistics and sample/distinct values — allowed columns only.
-3. Read data — approved tables, with row limits.
-4. Named queries — admin-approved, parameterised; the model only fills in parameters.
-5. Approved writes — configured updates, with human confirmation.
-
-Rules = operation + scope + level, assigned to roles (mapped to AD groups from M4), plus
-individual overrides. Read-only database roles back up the app-level rules.
+A mode per tool or tool group in the agent-workbench config: `allow` (runs without
+asking), `ask` (user confirms each call), `ask_session` (user confirms once per session),
+`deny` (not shown to the model; default for unlisted tools). Example defaults: SQL schema /
+table / column read, `validate_sql`, workspace read and write → `allow`; everything else →
+`deny`. Later: rules on tool arguments (e.g. per schema).
 
 ### Query approval (planned)
 
-- M1: a propose-query tool writes drafts to a drafts folder; the user copies approved
-  ones into the approved-queries file; the app reloads it and turns each entry into a
-  tool. The model never writes to the approved file.
-- M4: review list in the admin GUI with who/when and optional four-eyes approval.
+The model drafts SQL in the chat or as a workspace file and checks it with
+`validate_sql`. The user adds approved queries to the mcp-tools-sql query config (outside
+the workspace folder), sets their permission mode and presses Reload; each query becomes a
+`query_*` tool.
 
 ### Workspace confinement (planned)
 
-Workspace tools resolve paths and stay inside the configured project folder; allowed
-file types and size limits; no delete in M1.
+mcp-workspace confines paths to the configured project folder. Delete, move and
+Git / GitHub tools are `deny` by default.
 
-### Logging (planned)
+### Logging and retention (planned)
 
-Two layers joined by one request ID: the LLM layer logs user, prompt, model and tools
-chosen; the data layer logs user, operation, parameters, rows and duration.
+One structured line per tool call: user, tool, parameters, result size, duration; no
+results; secrets redacted. Sessions keep full conversations until the user deletes them.
+Logs and the session database live in the user app-data folder.
+
+### Limits (planned)
+
+As in mcp_coder: at most 50 agent steps per turn (LangGraph `recursion_limit`), an
+inactivity timeout per model call, token usage per turn and per session shown in the UI.
 
 ---
 
 ## 7. Roadmap
 
-1. Basic app on a Windows dev machine — chat, agent, read-only SQL metadata tools,
-   workspace folder, sessions, tool-call logging, file-based query approval.
-2. Sequential batch processing — repeat loop with stop checks; LEI lookup first.
-3. Separate data API — FastAPI with operation registry.
-4. Governance and identity — admin GUI, AD roles, Entra login, OpenShift, secrets.
-5. Writes and user delegation — approved updates, Kerberos delegation, file shares.
-6. Parallel batches — templates, job runner, concurrency limits, retries.
-7. Extensions — Workspace and Python plugins in a sandbox, Postgres, MCP option.
+1. **Basic app on a Windows dev machine** – epics "Working chat UI" and "Tools without MCP".
+2. **Sequential batch processing** – repeat loop with stop checks; LEI lookup first.
+
+Future ideas, not planned in detail: parameter-level permissions, a separate data API,
+governance and identity (AD / Entra, OpenShift), writes with user delegation, parallel
+batches, further tool packages (e.g. Python in a sandbox).
 
 ---
 
@@ -195,3 +203,7 @@ chosen; the data layer logs user, operation, parameters, rows and duration.
 | Dead code | vulture | CI push |
 | Dependency hygiene | deptry, `tools/check_no_url_deps.py` | CI PR / push |
 | File size | `mcp-coder check file-size` (750 lines) | CI push |
+
+Test approach: the agent loop is tested with a scripted fake chat model (permissions,
+confirmation, logging, Reload); SQL against an SQLite target; real-LLM tests are marked
+`integration` and run locally only; the Chainlit UI gets a manual smoke test per epic.
