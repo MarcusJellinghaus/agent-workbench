@@ -4,6 +4,7 @@ description: Updates a GitHub issue with refined content. Launched by the issue-
 tools:
   - Bash
   - mcp__mcp-workspace__github_issue_view
+  - mcp__mcp-workspace__github_issue_edit
   - mcp__mcp-workspace__save_file
   - mcp__mcp-workspace__edit_file
   - mcp__mcp-workspace__delete_this_file
@@ -26,6 +27,10 @@ On top of that process:
 
 - **Scope** — confirm the issue number in your launch prompt matches the issue you are about
   to edit; if it does not, stop and report back without editing.
+- **Edit** — prefer `mcp__mcp-workspace__github_issue_edit` with `body_file` (and `title`)
+  over the skill's `gh issue edit`; for an issue in a reference project's repository pass
+  `reference_name`. Fall back to `gh issue edit` (with `--repo` for another repository) only
+  if the MCP tool fails.
 - **Shell** — `gh` commands only.
 - **Report** the issue number, the new title, and confirmation the edit succeeded.
 
