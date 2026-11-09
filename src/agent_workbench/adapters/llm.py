@@ -25,7 +25,43 @@ def create_chat_model(config: LLMConfig, timeout: int) -> Any:
     """
     from .langchain._setup import _create_chat_model
 
-    return _create_chat_model(config.as_dict(), timeout=timeout)
+    chat_model = _create_chat_model(config.as_dict(), timeout=timeout)
+    if config.backend == "openai":
+        _mirror_openai_stream_usage(chat_model)
+    return chat_model
+
+
+# Fields holding the HTTP / SDK clients; set by the caller or by the validator.
+_CLIENT_FIELDS = frozenset(
+    {
+        "client",
+        "root_client",
+        "async_client",
+        "root_async_client",
+        "http_client",
+        "http_async_client",
+    }
+)
+
+
+def _mirror_openai_stream_usage(chat_model: Any) -> None:
+    """Set *chat_model*.stream_usage to what langchain_openai picks without custom clients.
+
+    langchain_openai enables streamed usage by default only when no custom HTTP
+    client is passed; the copied backend always passes its own. A reference
+    instance of the same class with the same settings minus the clients (built
+    without a network call) decides the value.
+
+    Args:
+        chat_model: A ``ChatOpenAI`` / ``AzureChatOpenAI`` from the copied backend.
+    """
+    init = {
+        name: getattr(chat_model, name)
+        for name in chat_model.model_fields_set
+        if name not in _CLIENT_FIELDS | {"stream_usage"}
+    }
+    reference = type(chat_model)(**init)
+    chat_model.stream_usage = reference.stream_usage
 
 
 def map_provider_error(exc: Exception, config: LLMConfig, chat_model: Any) -> NoReturn:

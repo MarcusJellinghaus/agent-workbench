@@ -21,6 +21,8 @@ _.add
 _.has_error
 # tests/adapters/test_ssl_setup.py: autouse fixture
 _._reset_injected
+# tests/adapters/test_llm_stream_usage.py: autouse fixture
+_._openai_env
 
 # adapters/langchain/_config_diagnostics.py: Finding TypedDict field, read by consumers via dict access
 _.ok
