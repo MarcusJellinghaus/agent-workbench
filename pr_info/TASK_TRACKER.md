@@ -67,9 +67,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 10: Docs (README, architecture.md, CLAUDE.md pytest note) — [step_10.md](./steps/step_10.md)
-- [ ] Implementation: update `README.md`, `docs/architecture/architecture.md`, `.claude/CLAUDE.md`
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach, vulture, deptry, bandit, check_file_size) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: update `README.md`, `docs/architecture/architecture.md`, `.claude/CLAUDE.md`
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach, vulture, deptry, bandit, check_file_size) — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 - [ ] PR review: review the full branch diff against `main`, address findings

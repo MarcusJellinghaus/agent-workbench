@@ -111,10 +111,10 @@ Package: `src/agent_workbench/`. Dependencies flow downward only; enforced by
 | Layer | Package | Responsibility (planned) | Status |
 |---|---|---|---|
 | apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | empty |
-| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI placeholder |
-| services | `agent_workbench.services` | Permission check and confirmation, tool-call logging, toolset building and reload | empty |
-| adapters | `agent_workbench.adapters` | Copied LLM model layer, tool-spec → LangChain tool adapter, lazy loading of tool packages | empty |
-| core | `agent_workbench.core` | Config models, permission modes, domain types | `greeting.py` placeholder |
+| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify, prompt |
+| services | `agent_workbench.services` | Permission check and confirmation, tool-call logging, toolset building and reload | verify checks, logging setup |
+| adapters | `agent_workbench.adapters` | Copied LLM model layer, tool-spec → LangChain tool adapter, lazy loading of tool packages | copied LLM model layer, config loader, chat-model functions |
+| core | `agent_workbench.core` | Config models, permission modes, domain types | `LLMConfig` |
 
 Additional contracts:
 
@@ -139,12 +139,11 @@ Core dependencies: `pydantic`, `chainlit`, `langgraph`, `langchain-core`, `httpx
 `truststore`, `mcp-coder-utils`, plus the session-store packages (SQLite checkpointer,
 Chainlit data layer). Everything else is an extra: LLM providers named as in mcp_coder
 (`[langchain-openai]`, `[langchain-anthropic]`, `[langchain-gemini]`, `[langchain-ollama]`,
-meta extra `[langchain]`) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
+meta extra `[langchain]` for all four) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
 
 ### Placeholder code
 
-`core/greeting.py` and `interfaces/cli.py` (entry point `agent-workbench`) exist only
-to exercise the toolchain. Remove them when real code lands.
+The toolchain placeholder (`core/greeting.py`, the greeting CLI) was removed in #14.
 
 ---
 
