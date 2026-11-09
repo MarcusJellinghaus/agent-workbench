@@ -20,3 +20,11 @@ Checking `resolve_target` error handling, which affects step 6's runtime-import-
 Verdict(decision='tasks', tasks=['pr_info/steps/step_2.md:5 — Split step 2 into smaller steps that each fit in one commit. (a) Copy the 15 source modules from `f88e6b55`, together with their packaging, deptry, mypy, import-linter and vulture entries, so that checks pass without the tests. (b) Copy the tests and the trimmed conftest in two halves: first backends/http/exceptions/messages, then contract/diagnostics/models/models_ollama/provider_checks/resolve_target. Renumber the later step files to match, and update the step list in `summary.md:96-103`.', 'pr_info/steps/step_6.md:113 — Fully specify the \'ollama without tool calling\' test. Use a config with `backend = "ollama"` and a `model`. Patch `_check_package_installed` to return True, `_check_ollama_daemon` to return `{"ok": True, ...}`, and `check_ollama_tool_capability` to return `{"ok": False, ...}`. Assert that `exit_code == 1` and that `provider["ollama_tools_capability"]["ok"] is False`.'], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-11-09
+**Findings**:
+Checking the mcp_coder source at `f88e6b55` to see whether step 8's tests, which run outside `tests/adapters/langchain/`, need `langchain_core`.Still checking the copied mcp_coder tests for dependencies on uncopied glue. Next: diagnostics, provider_checks and resolve_target.Checking `tach.toml` layer rules against the plan's cross-layer imports.`pr_info/steps/summary.md:53` — medium — No step runs the `integration`-marked `prompt` test (`run_pytest_check` with `markers=["integration"]` and a local config) or records whether it ran and its result. The acceptance criterion requires the PR to state this. `pr_notes.md` only collects skipped tests and dropped import-linter entries, so add an "Integration test" line to it in Step 9 or Step 10.
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
