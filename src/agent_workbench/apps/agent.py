@@ -169,10 +169,13 @@ async def run_turn(  # pylint: disable=too-many-arguments
             usage.get("cache_read_input_tokens", 0),
         )
         return None
-    except TimeoutError:
+    except TimeoutError as exc:
         if overall.expired():
             return _OVERALL_MSG.format(s=overall_timeout)
-        return _IDLE_MSG.format(s=idle_timeout)
+        if idle.expired():
+            return _IDLE_MSG.format(s=idle_timeout)
+        # Raised by the provider, not by a turn timer.
+        return await _provider_error_message(exc, llm_config, chat_model)
     except GraphRecursionError:
         return _STEPS_MSG.format(n=AGENT_MAX_STEPS)
     except NodeCancelledError as exc:
@@ -183,7 +186,18 @@ async def run_turn(  # pylint: disable=too-many-arguments
             return _IDLE_MSG.format(s=idle_timeout)
         raise asyncio.CancelledError() from exc
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        try:
-            await asyncio.to_thread(llm.map_provider_error, exc, llm_config, chat_model)
-        except Exception as mapped:  # pylint: disable=broad-exception-caught
-            return f"Error: {mapped}"
+        return await _provider_error_message(exc, llm_config, chat_model)
+
+
+async def _provider_error_message(
+    exc: Exception, llm_config: LLMConfig, chat_model: Any
+) -> str:
+    """Return the user-facing message of *exc* mapped by ``map_provider_error``.
+
+    Runs in a thread: on a 404 the mapping lists models over the network.
+    """
+    try:
+        await asyncio.to_thread(llm.map_provider_error, exc, llm_config, chat_model)
+    except Exception as mapped:  # pylint: disable=broad-exception-caught
+        return f"Error: {mapped}"
+    raise AssertionError("map_provider_error always raises")  # pragma: no cover

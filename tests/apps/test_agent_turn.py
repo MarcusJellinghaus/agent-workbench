@@ -158,6 +158,21 @@ async def test_provider_error_is_mapped() -> None:
     spy.assert_called_once_with(boom, LLM_CONFIG, model)
 
 
+async def test_provider_timeout_error_is_mapped() -> None:
+    boom = TimeoutError("provider")
+
+    def script(_n: int) -> AIMessage:
+        raise boom
+
+    model = make_scripted_chat_model(script, "fake")
+    with patch.object(
+        llm, "map_provider_error", side_effect=RuntimeError("mapped")
+    ) as spy:
+        message = await _turn(_graph(model), model, "hi", [])
+    assert message == "Error: mapped"
+    spy.assert_called_once_with(boom, LLM_CONFIG, model)
+
+
 async def test_inactivity_timeout() -> None:
     model = _StallingModel()
     with patch.object(llm, "map_provider_error") as spy:
