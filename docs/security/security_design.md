@@ -90,7 +90,7 @@ The model never gets a database connection or credentials. It can only request a
 ### 4.7 Dependencies
 
 - Core dependencies are kept minimal; LLM providers and tool packages are optional extras, imported only when configured.
-- Chainlit itself depends on the `mcp` SDK, so it is installed; the tool path never imports it (tested). mcp-workspace makes its Git / GitHub libraries optional.
+- Chainlit itself depends on the `mcp` SDK, so it is installed; the tool path never imports it (tested). Making mcp-workspace's Git / GitHub libraries optional is planned but not required; until then they are installed (unused while those tools are `deny`).
 - Dependabot and OpenSSF Scorecard run on the repository.
 
 ---

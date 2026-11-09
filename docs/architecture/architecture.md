@@ -38,6 +38,8 @@ mode per tool decides what the model may call; every tool call is logged.
   only when configured.
 - **Reuse, don't rebuild.** agent-workbench defines no tools of its own (except batch
   control in M2); it copies the LangChain model layer from mcp_coder.
+- **Follow mcp_coder.** Where possible and sensible, structure, naming, config, extras and
+  `verify` follow mcp_coder.
 
 ### Stakeholders
 
@@ -135,8 +137,9 @@ adds a dependency also adds its import-linter `forbidden` contract
 
 Core dependencies: `pydantic`, `chainlit`, `langgraph`, `langchain-core`, `httpx`,
 `truststore`, `mcp-coder-utils`, plus the session-store packages (SQLite checkpointer,
-Chainlit data layer). Everything else is an extra: `[openai]`, `[anthropic]`, `[gemini]`,
-`[ollama]`, `[sql]`, `[sql-mssql]`, `[workspace]`.
+Chainlit data layer). Everything else is an extra: LLM providers named as in mcp_coder
+(`[langchain-openai]`, `[langchain-anthropic]`, `[langchain-gemini]`, `[langchain-ollama]`,
+meta extra `[langchain]`) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
 
 ### Placeholder code
 
