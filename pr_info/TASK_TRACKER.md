@@ -37,9 +37,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 4: Copy model-layer tests, part 2 (contract, diagnostics, models, provider checks, resolve_target) — [step_4.md](./steps/step_4.md)
-- [ ] Implementation: the six test copies, vulture whitelist / large-files allowlist if needed
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, check_file_size) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: the six test copies, vulture whitelist / large-files allowlist if needed
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, check_file_size) — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Config — `core.config.LLMConfig` and `adapters.config` reader / loader — [step_5.md](./steps/step_5.md)
 - [ ] Implementation: tests first, then `core/config.py` and `adapters/config.py`

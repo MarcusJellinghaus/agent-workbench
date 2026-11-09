@@ -54,3 +54,8 @@ _.ToolMessage
 # tests/adapters/langchain/test_langchain_{anthropic,gemini,http,ollama,openai}.py: MagicMock
 # return values, read when the code under test calls the mock
 _.return_value
+# tests/adapters/langchain/test_langchain_{contract,provider_checks,resolve_target}.py:
+# autouse fixtures clearing credential, endpoint and redirect env vars
+_._clear_credentials
+_._clear_env
+_._clear_redirects
