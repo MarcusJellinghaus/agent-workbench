@@ -57,9 +57,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 8: `verify` checks and exit code in `services/verify.py` — [step_8.md](./steps/step_8.md)
-- [ ] Implementation: tests first, then `VerifyReport`, `verify_config`, `collect_install_hints`, `compute_exit_code`, `run_verify`
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests first, then `VerifyReport`, `verify_config`, `collect_install_hints`, `compute_exit_code`, `run_verify`
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach) — fix all issues
+- [x] Commit message prepared
 
 ### Step 9: CLI `verify` / `prompt` subcommands, formatter, placeholder removal — [step_9.md](./steps/step_9.md)
 - [ ] Implementation: tests first, then `cli.py` rewrite, `verify_formatting.py`, greeting removal, integration test
