@@ -1,4 +1,4 @@
-"""Public chat-model, error-mapping and invoke functions over the copied model layer.
+"""Public chat-model, error-mapping, invoke and usage functions over the copied model layer.
 
 The copies are imported inside the function bodies so that importing this module
 stays light (no ``langchain_core`` at import time).
@@ -6,6 +6,7 @@ stays light (no ``langchain_core`` at import time).
 
 from typing import Any, NoReturn
 
+from agent_workbench.adapters.llm_types import UsageInfo
 from agent_workbench.core.config import LLMConfig
 
 
@@ -67,3 +68,23 @@ def invoke(chat_model: Any, config: LLMConfig, text: str) -> str:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         map_provider_error(exc, config, chat_model)
     return msg.content if isinstance(msg.content, str) else str(msg.content)
+
+
+def add_usage(total: UsageInfo, message: Any) -> UsageInfo:
+    """Return *total* plus the usage carried by *message* (an AIMessage).
+
+    Args:
+        total: The usage summed so far.
+        message: An ``AIMessage`` / ``AIMessageChunk`` (or any object with an
+            optional ``usage_metadata`` attribute).
+
+    Returns:
+        *total* itself when *message* carries no usage, else a new ``UsageInfo``
+        with all four fields.
+    """
+    from .langchain._usage import _extract_usage, _sum_usage
+
+    usage = _extract_usage(message)
+    if not usage:
+        return total
+    return _sum_usage(total, usage)

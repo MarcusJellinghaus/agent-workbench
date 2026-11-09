@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from agent_workbench.adapters import llm
 from agent_workbench.adapters.langchain._errors_404 import _format_404_hint
 from agent_workbench.adapters.langchain._exceptions import LLMConnectionError
+from agent_workbench.adapters.llm_types import UsageInfo
 from agent_workbench.core.config import LLMConfig
 
 _CONFIG = LLMConfig(backend="ollama", model="llama3")
@@ -69,3 +71,34 @@ def test_invoke_unmatched_error_reraised_unchanged() -> None:
     with pytest.raises(RuntimeError) as exc_info:
         llm.invoke(chat_model, _CONFIG, "hi")
     assert exc_info.value is error
+
+
+def test_add_usage_without_usage_metadata_returns_total_unchanged() -> None:
+    total: UsageInfo = {}
+    assert llm.add_usage(total, SimpleNamespace()) is total
+    assert llm.add_usage(total, SimpleNamespace(usage_metadata=None)) is total
+    assert not total
+
+
+def test_add_usage_sums_two_messages() -> None:
+    first = SimpleNamespace(
+        usage_metadata={
+            "input_tokens": 10,
+            "output_tokens": 3,
+            "input_token_details": {"cache_read": 4},
+        }
+    )
+    second = SimpleNamespace(
+        usage_metadata={
+            "input_tokens": 20,
+            "output_tokens": 5,
+            "input_token_details": {"cache_read": 6, "cache_creation": 2},
+        }
+    )
+    total = llm.add_usage(llm.add_usage({}, first), second)
+    assert total == {
+        "input_tokens": 30,
+        "output_tokens": 8,
+        "cache_read_input_tokens": 10,
+        "cache_creation_input_tokens": 2,
+    }
