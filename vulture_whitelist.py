@@ -46,6 +46,16 @@ _.check_provider
 # adapters/langchain/_setup.py: system-message builder and error mapping, used by adapters.llm
 _._build_system_messages
 _._handle_provider_error
+# apps/agent.py: recursion limit of a turn, used by run_turn (#15 step 5)
+_.AGENT_MAX_STEPS
+
+# tests/langchain_doubles.py: BaseChatModel overrides of the copied fake, called by langchain_core
+_._generate
+_._agenerate
+_._llm_type
+_.kw
+_.stop
+_.run_manager
 
 # tests/adapters/langchain/conftest.py: autouse session fixture for mocking langchain modules
 _._mock_langchain_modules

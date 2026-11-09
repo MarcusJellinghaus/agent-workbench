@@ -275,9 +275,9 @@ optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
 DEP003 = [
     "openai", "anthropic", "google", "ollama", "pydantic",
 ]
-# DEP002: declared ahead of their first src import so the environment has them
-# before the steps that need them; #15 step 4 removes langgraph, step 8 chainlit.
-DEP002 = ["langgraph", "chainlit"]
+# DEP002: declared ahead of its first src import so the environment has it
+# before the step that needs it; #15 step 8 removes chainlit.
+DEP002 = ["chainlit"]
 
 [tool.mcp-tools-py]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)

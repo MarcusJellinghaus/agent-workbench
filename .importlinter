@@ -122,6 +122,17 @@ forbidden_modules =
     agent_workbench.adapters
     agent_workbench.adapters.langchain
 
+# langgraph: the agent graph. Allowed in apps only.
+[importlinter:contract:langgraph_isolation]
+name = langgraph only in apps
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langgraph
+ignore_imports =
+    agent_workbench.apps.** -> langgraph
+
 # Third-party modules of the model layer: allowed in adapters only.
 [importlinter:contract:langchain_core_isolation]
 name = langchain_core only in adapters
