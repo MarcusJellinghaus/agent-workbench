@@ -94,7 +94,7 @@ def test_written_config_loaded_by_chainlit() -> None:
         load_settings,
     )
 
-    settings = load_settings()  # type: ignore[no-untyped-call]
+    settings = load_settings()
     assert settings["project"].allow_origins == [
         "http://127.0.0.1:8123",
         "http://localhost:8123",

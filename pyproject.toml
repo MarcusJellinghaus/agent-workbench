@@ -171,6 +171,11 @@ ignore_missing_imports = true
 follow_imports = "skip"
 
 [[tool.mypy.overrides]]
+module = ["chainlit", "chainlit.*"]
+ignore_missing_imports = true
+follow_imports = "skip"  # untyped user_session / Message.send fail no-untyped-call
+
+[[tool.mypy.overrides]]
 module = ["ollama", "ollama.*"]
 ignore_missing_imports = true
 
