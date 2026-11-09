@@ -16,8 +16,10 @@ dependency. Tests first, then code; all checks pass; one commit.
 - Create `tests/apps/test_ui_launcher.py`
 
 ## Packaging / contracts
-- `dependencies`: `"chainlit>=<version found in step 7's probe>",   # chat UI (apps)`.
-  `requires-python` unchanged.
+- `dependencies`: `"chainlit>=2.12.0",   # chat UI (apps)` is already there; raise the floor
+  if step 7's probe found an installed version below what the code needs. Remove
+  `chainlit` from `[tool.deptry.per_rule_ignores] DEP002` (drop the entry and its comment
+  if it is then empty). `requires-python` unchanged.
 - `[project.scripts]`: `agent-workbench-ui = "agent_workbench.apps.ui_launcher:main"`.
 - `.importlinter`: `chainlit_isolation` contract (forbidden `chainlit` from
   `agent_workbench`, `ignore_imports = agent_workbench.apps.** -> chainlit`), comment

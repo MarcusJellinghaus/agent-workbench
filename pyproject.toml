@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "truststore>=0.9.0",   # OS certificate store (adapters.ssl_setup)
     "mcp-coder-utils>=0.1.6",   # token_fingerprint arrived after 0.1.5
+    "chainlit>=2.12.0",   # chat UI (apps)
 ]
 
 [project.optional-dependencies]
@@ -274,6 +275,9 @@ optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
 DEP003 = [
     "openai", "anthropic", "google", "ollama", "pydantic",
 ]
+# DEP002: declared ahead of their first src import so the environment has them
+# before the steps that need them; #15 step 4 removes langgraph, step 8 chainlit.
+DEP002 = ["langgraph", "chainlit"]
 
 [tool.mcp-tools-py]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)

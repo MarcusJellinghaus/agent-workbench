@@ -17,15 +17,9 @@ mcp_coder's fake chat model, and create `apps/agent.py` with `build_graph` and
 - Create `tests/apps/__init__.py`, `tests/apps/test_agent_graph.py`
 
 ## Packaging / contracts
-- `[langchain-base]`: add `"langgraph>=1.2.9",` with mcp_coder's comment
-  (`# >=1.2.9 -> langgraph-checkpoint>=4.1.0 (Reviver allowed_objects fix)`).
-- mypy override, verbatim from mcp_coder:
-  ```toml
-  [[tool.mypy.overrides]]
-  module = ["langgraph", "langgraph.*"]
-  ignore_missing_imports = true
-  follow_imports = "skip"
-  ```
+- Already done ahead of this step: `"langgraph>=1.2.9"` in `[langchain-base]` and the
+  `langgraph` mypy override. Remove `langgraph` from `[tool.deptry.per_rule_ignores]
+  DEP002` (the import added here makes it used).
 - `.importlinter`: new `langgraph_isolation` contract (forbidden `langgraph` from
   `agent_workbench`, `ignore_imports = agent_workbench.apps.** -> langgraph`), comment
   "langgraph: the agent graph. Allowed in apps only." `langchain_core_isolation` stays

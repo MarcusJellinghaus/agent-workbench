@@ -63,8 +63,9 @@ No `apps` module is named like a top-level package (Chainlit puts the shim's fol
 
 ### Dependencies and contracts
 
-- `chainlit>=<installed>` → core dependencies (step 8, with its first `src` import).
-- `langgraph>=1.2.9` (mcp_coder's floor) → `[langchain-base]` (step 4).
+- `chainlit>=2.12.0` → core dependencies, and `langgraph>=1.2.9` (mcp_coder's floor) →
+  `[langchain-base]`: both declared before step 4 so the environment has them, with a
+  temporary deptry `DEP002` ignore that step 4 (langgraph) and step 8 (chainlit) remove.
 - No `langchain-mcp-adapters`.
 - import-linter: `chainlit_isolation` and `langgraph_isolation` (`apps.**` only);
   `langchain_core_isolation` also allows `agent_workbench.apps.**`.
