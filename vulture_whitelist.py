@@ -59,3 +59,12 @@ _.return_value
 _._clear_credentials
 _._clear_env
 _._clear_redirects
+
+# tests/services/test_{logging_setup,verify}.py, tests/interfaces/test_{cli,prompt_integration}.py:
+# pytest fixtures and module markers, used by pytest
+_._restore_levels
+_._config_path
+_._fake_chat_model
+_._patch_startup
+_._chat_model
+_.pytestmark

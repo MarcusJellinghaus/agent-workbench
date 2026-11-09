@@ -62,9 +62,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 9: CLI `verify` / `prompt` subcommands, formatter, placeholder removal — [step_9.md](./steps/step_9.md)
-- [ ] Implementation: tests first, then `cli.py` rewrite, `verify_formatting.py`, greeting removal, integration test
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach, vulture) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests first, then `cli.py` rewrite, `verify_formatting.py`, greeting removal, integration test
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach, vulture) — fix all issues
+- [x] Commit message prepared
 
 ### Step 10: Docs (README, architecture.md, CLAUDE.md pytest note) — [step_10.md](./steps/step_10.md)
 - [ ] Implementation: update `README.md`, `docs/architecture/architecture.md`, `.claude/CLAUDE.md`
