@@ -133,9 +133,9 @@ forbidden_modules =
 ignore_imports =
     agent_workbench.apps.** -> langgraph
 
-# Third-party modules of the model layer: allowed in adapters only.
+# langchain_core: the model layer (adapters) and the agent's messages (apps).
 [importlinter:contract:langchain_core_isolation]
-name = langchain_core only in adapters
+name = langchain_core only in adapters and apps
 type = forbidden
 source_modules =
     agent_workbench
@@ -143,7 +143,9 @@ forbidden_modules =
     langchain_core
 ignore_imports =
     agent_workbench.adapters.** -> langchain_core
+    agent_workbench.apps.** -> langchain_core
 
+# Third-party modules of the model layer: allowed in adapters only.
 [importlinter:contract:langchain_openai_isolation]
 name = langchain_openai only in adapters
 type = forbidden
