@@ -20,7 +20,11 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 dependencies = [
+    "pydantic>=2",
+    "langchain-core>=1.4.7",
+    "httpx>=0.27.0",
     "truststore>=0.9.0",   # OS certificate store (adapters.ssl_setup)
+    "mcp-coder-utils>=0.1.6",   # token_fingerprint arrived after 0.1.5
 ]
 
 [project.optional-dependencies]
@@ -37,8 +41,14 @@ coverage = [
     "coverage",
     "diff-cover",
 ]
+# LangChain provider wrappers, one extra each; [langchain] installs all of them.
+langchain-openai = ["langchain-openai>=0.2.0"]
+langchain-gemini = ["langchain-google-genai>=2.0.0"]
+langchain-anthropic = ["langchain-anthropic>=0.3.0"]
+langchain-ollama = ["langchain-ollama>=0.2.0"]
+langchain = ["agent-workbench[langchain-openai,langchain-gemini,langchain-anthropic,langchain-ollama]"]
 dev = [
-    "agent-workbench[typecheck,coverage]",
+    "agent-workbench[typecheck,coverage,langchain]",
     "mcp-coder",           # file-size check, workflows
     "mcp-workspace",       # MCP file tools for Claude Code
     "mcp-tools-py",        # MCP pylint/mypy/pytest/vulture/... tools; ships pylint
@@ -46,7 +56,7 @@ dev = [
     "ruff~=0.17.2",        # pinned for stable rule/format output
     "tach>=0.35.0",
     "deptry>=0.25.1",
-    "import-linter>=2.0",
+    "import-linter>=2.15",
     "vulture>=2.14",
     "pytest-asyncio",      # asyncio_mode = "auto"; Chainlit/LangGraph code is async
     "pytest-xdist",        # addopts uses `-n auto`
@@ -99,6 +109,51 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["truststore"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["langchain_core", "langchain_core.*"]
+ignore_missing_imports = true
+follow_imports = "skip"  # modules are optional, skip to avoid errors when not installed
+
+[[tool.mypy.overrides]]
+module = ["langchain_openai"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langchain_google_genai"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langchain_anthropic"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langchain_ollama"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["ollama", "ollama.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["anthropic", "anthropic.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["google", "google.genai", "google.genai.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["openai", "openai.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["httpx", "httpx.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -179,6 +234,10 @@ known_first_party = ["agent_workbench"]
 # but importing one from src/ is still reported (DEP004). deptry does not expand
 # the `agent-workbench[typecheck,coverage]` self-reference in `dev`, so name all three.
 optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
+
+[tool.deptry.per_rule_ignores]
+# DEP003: vendor SDKs imported behind try/except ImportError, supplied by the langchain-* extras.
+DEP003 = ["openai", "anthropic", "google", "ollama"]
 
 [tool.mcp-tools-py]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)
