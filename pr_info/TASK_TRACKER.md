@@ -21,6 +21,56 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: Flat copies `llm_types`, `config_hints`, `ssl_setup`, `toml_utils` — [step_1.md](./steps/step_1.md)
+- [ ] Implementation: copy the four modules and their tests, update `pyproject.toml`, `.importlinter`, `vulture_whitelist.py`
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, deptry) — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: Copy the LangChain model layer (15 source modules) — [step_2.md](./steps/step_2.md)
+- [ ] Implementation: copy the modules, add packaging/extras, mypy, deptry, import-linter, vulture and large-file entries
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, deptry, tach, check_file_size) — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: Copy model-layer tests, part 1 (conftest, backends, http, exceptions, messages) — [step_3.md](./steps/step_3.md)
+- [ ] Implementation: trimmed conftest and the seven test copies, vulture whitelist if needed
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture) — fix all issues
+- [ ] Commit message prepared
+
+### Step 4: Copy model-layer tests, part 2 (contract, diagnostics, models, provider checks, resolve_target) — [step_4.md](./steps/step_4.md)
+- [ ] Implementation: the six test copies, vulture whitelist / large-files allowlist if needed
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, check_file_size) — fix all issues
+- [ ] Commit message prepared
+
+### Step 5: Config — `core.config.LLMConfig` and `adapters.config` reader / loader — [step_5.md](./steps/step_5.md)
+- [ ] Implementation: tests first, then `core/config.py` and `adapters/config.py`
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
+- [ ] Commit message prepared
+
+### Step 6: Public LLM functions in `adapters/llm.py` — [step_6.md](./steps/step_6.md)
+- [ ] Implementation: tests first, then `create_chat_model`, `map_provider_error`, `invoke`
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
+- [ ] Commit message prepared
+
+### Step 7: Logging setup in `services/logging_setup.py` — [step_7.md](./steps/step_7.md)
+- [ ] Implementation: tests first, then `setup_logging` / `LOG_LEVELS`, `.importlinter` services entry
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
+- [ ] Commit message prepared
+
+### Step 8: `verify` checks and exit code in `services/verify.py` — [step_8.md](./steps/step_8.md)
+- [ ] Implementation: tests first, then `VerifyReport`, `verify_config`, `collect_install_hints`, `compute_exit_code`, `run_verify`
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach) — fix all issues
+- [ ] Commit message prepared
+
+### Step 9: CLI `verify` / `prompt` subcommands, formatter, placeholder removal — [step_9.md](./steps/step_9.md)
+- [ ] Implementation: tests first, then `cli.py` rewrite, `verify_formatting.py`, greeting removal, integration test
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach, vulture) — fix all issues
+- [ ] Commit message prepared
+
+### Step 10: Docs (README, architecture.md, CLAUDE.md pytest note) — [step_10.md](./steps/step_10.md)
+- [ ] Implementation: update `README.md`, `docs/architecture/architecture.md`, `.claude/CLAUDE.md`
+- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, tach, vulture, deptry, bandit, check_file_size) — fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+- [ ] PR review: review the full branch diff against `main`, address findings
+- [ ] PR summary prepared (include `pr_info/pr_notes.md` content: skipped copied tests, dropped import-linter entries)
