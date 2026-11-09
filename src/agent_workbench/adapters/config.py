@@ -47,13 +47,22 @@ class ConfigFile:
     llm_type_error: str | None = None
 
 
+def app_data_dir() -> Path:
+    """Return the user app-data folder.
+
+    Returns:
+        ``~/.agent_workbench``.
+    """
+    return get_user_app_data_dir("agent_workbench")
+
+
 def config_file_path() -> Path:
     """Return the user config file path.
 
     Returns:
         ``~/.agent_workbench/config.toml``.
     """
-    return get_user_app_data_dir("agent_workbench") / "config.toml"
+    return app_data_dir() / "config.toml"
 
 
 def read_config_file(path: Path | None = None) -> ConfigFile:

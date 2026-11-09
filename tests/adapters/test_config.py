@@ -6,6 +6,7 @@ import pytest
 
 from agent_workbench.adapters.config import (
     ENV_VARS,
+    app_data_dir,
     config_file_path,
     load_llm_config,
     read_config_file,
@@ -183,3 +184,11 @@ def test_unknown_key_ignored(tmp_path: Path) -> None:
 def test_config_file_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     assert config_file_path() == tmp_path / ".agent_workbench" / "config.toml"
+
+
+def test_config_file_path_is_in_app_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert app_data_dir() == tmp_path / ".agent_workbench"
+    assert config_file_path() == app_data_dir() / "config.toml"
