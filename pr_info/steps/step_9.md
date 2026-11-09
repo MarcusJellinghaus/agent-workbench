@@ -72,7 +72,9 @@ lifespan).
     streamed when `has_data`; answer sent;
   - error → error message sent;
   - `None` message → `run_turn` not called;
-  - two calls in the same session reuse one `TokenUsage`.
+  - two calls in the same session reuse one `TokenUsage`;
+  - Stop: `run_turn` patched to raise `asyncio.CancelledError` → `on_message` raises
+    `CancelledError` (`pytest.raises`), no `Message(...).send()` and no `stream_token` call.
 - Importing `ui_target` imports `ui_handlers` (module in `sys.modules`).
 
 ## Checks / commit

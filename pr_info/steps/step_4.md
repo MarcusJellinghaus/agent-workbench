@@ -28,8 +28,9 @@ mcp_coder's fake chat model, and create `apps/agent.py` with `build_graph` and
   ```
 - `.importlinter`: new `langgraph_isolation` contract (forbidden `langgraph` from
   `agent_workbench`, `ignore_imports = agent_workbench.apps.** -> langgraph`), comment
-  "langgraph: the agent graph. Allowed in apps only."; `langchain_core_isolation` gets
-  `agent_workbench.apps.** -> langchain_core` and its comment says "adapters and apps".
+  "langgraph: the agent graph. Allowed in apps only." `langchain_core_isolation` stays
+  unchanged here: no `apps` module imports `langchain_core` yet, and import-linter fails on
+  an unmatched ignore (`unmatched_ignore_imports_alerting` defaults to `error`). Step 5 adds it.
 
 ## WHAT (`apps/agent.py`)
 ```python

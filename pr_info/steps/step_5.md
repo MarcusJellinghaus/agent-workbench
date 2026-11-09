@@ -11,7 +11,14 @@ error mapping, Stop and token usage. Tests first, then code; all checks pass; on
 
 ## WHERE
 - Modify `src/agent_workbench/apps/agent.py`
+- Modify `.importlinter`
 - Create `tests/apps/test_agent_turn.py`
+
+## Contracts
+`apps/agent.py` now imports `langchain_core` (`HumanMessage`) for the first time:
+`langchain_core_isolation` gets `agent_workbench.apps.** -> langchain_core` in
+`ignore_imports`, its name / comment say "adapters and apps". Added here, not earlier,
+because import-linter fails on an unmatched ignore.
 
 ## WHAT
 ```python
@@ -43,15 +50,22 @@ error: `f"Error: {mapped_exc}"`.
   `run_agent_stream` (`astream_events(version="v2")`, `on_chat_model_stream`,
   `on_chat_model_end`, `_is_node_cancelled`) and `__init__.py` `_AGENT_OVERALL_TIMEOUT`.
 - Run config: `{"configurable": {"thread_id": thread_id}, "recursion_limit": AGENT_MAX_STEPS}`.
-- Input: `{"messages": [HumanMessage(content=text)]}` – or `[("user", text)]`, which needs
-  no `langchain_core` import.
+- Input: `{"messages": [HumanMessage(content=text)]}` (`from langchain_core.messages import
+  HumanMessage`, top level).
 - Delta text: `chunk.text` (property in langchain-core ≥ 1.0; covers list content).
 - Usage: `usage = llm.add_usage(usage, event["data"]["output"])` per `on_chat_model_end`;
   `token_usage.update(input, output, cache_read)` only after the stream completed.
 - `map_provider_error` raises (NoReturn): call it via `asyncio.to_thread` inside a
   `try/except Exception as mapped` and use `mapped` for the message.
-- `NodeCancelledError`: `from langgraph.errors import NodeCancelledError` guarded by
-  `try/except ImportError`, as mcp_coder's `_is_node_cancelled`.
+- `NodeCancelledError`: no `try/except ImportError` (`knowledge_base/python.md`). mcp_coder
+  guards the import only because the class "exists in newer releases"; this step pins the
+  answer for the `langgraph>=1.2.9` floor. Probe (`.scratch/`): does `langgraph.errors`
+  define `NodeCancelledError` in 1.2.9? Read it from the installed source
+  (`get_library_source("langgraph.errors")`) together with the installed version; if the
+  installed version is newer than 1.2.9, check the 1.2.9 release (its changelog or source).
+  - Present at 1.2.9 → top-level `from langgraph.errors import GraphRecursionError,
+    NodeCancelledError`; re-raise as `asyncio.CancelledError`.
+  - Absent at 1.2.9 → no `NodeCancelledError` branch and no test for it; note it in the PR.
 - Never `except BaseException`; `asyncio.CancelledError` propagates; the function adds no
   message on Stop.
 - Close the event stream on exit (`contextlib.aclosing`).
@@ -67,7 +81,8 @@ try:
   token_usage.update(...); return None
 except TimeoutError: return OVERALL if cm.expired() else IDLE
 except GraphRecursionError: return STEPS
-except Exception as exc: NodeCancelled → raise CancelledError from exc; else map in thread → "Error: …"
+except NodeCancelledError as exc: raise CancelledError from exc   # only if present at 1.2.9
+except Exception as exc: map in thread → "Error: …"
 ```
 
 ## DATA
@@ -90,8 +105,9 @@ Graph from `build_graph(model, [], InMemorySaver())`; `on_text` collects into a 
 - Stop: start `run_turn` as a task with the stalling model, wait until it is inside
   `_agenerate`, cancel → `CancelledError` raised, `on_text` not called, `map_provider_error`
   (patched spy) not called.
-- `NodeCancelledError`: model raising `asyncio.CancelledError` from `_agenerate` →
-  `run_turn` raises `CancelledError` (skip if the installed langgraph lacks the class).
+- `NodeCancelledError` (only if the probe found the class at 1.2.9; otherwise omitted, no
+  skip): model raising `asyncio.CancelledError` from `_agenerate` → `run_turn` raises
+  `CancelledError`, `map_provider_error` (patched spy) not called.
 - Usage: scripted messages with `usage_metadata` → per-turn sum (two model calls in one
   turn, via a tool call), session total over two turns; a failed turn leaves `token_usage`
   unchanged.
