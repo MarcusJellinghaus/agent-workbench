@@ -42,9 +42,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 5: Config — `core.config.LLMConfig` and `adapters.config` reader / loader — [step_5.md](./steps/step_5.md)
-- [ ] Implementation: tests first, then `core/config.py` and `adapters/config.py`
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests first, then `core/config.py` and `adapters/config.py`
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
+- [x] Commit message prepared
 
 ### Step 6: Public LLM functions in `adapters/llm.py` — [step_6.md](./steps/step_6.md)
 - [ ] Implementation: tests first, then `create_chat_model`, `map_provider_error`, `invoke`
