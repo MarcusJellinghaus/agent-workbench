@@ -58,3 +58,177 @@ forbidden_modules =
     truststore
 ignore_imports =
     agent_workbench.adapters.** -> truststore
+
+# The copied model layer and the flat copies import no other agent_workbench module and never langgraph.
+# import-linter skips a source/forbidden pair where one contains the other, so agent_workbench.* alone
+# does not cover modules inside adapters: agent_workbench.adapters.* is forbidden as well.
+[importlinter:contract:langchain_model_layer]
+name = LangChain Model Layer Self-Contained
+type = forbidden
+source_modules =
+    agent_workbench.adapters.langchain.anthropic_backend
+    agent_workbench.adapters.langchain.gemini_backend
+    agent_workbench.adapters.langchain.ollama_backend
+    agent_workbench.adapters.langchain.openai_backend
+    agent_workbench.adapters.langchain._models
+    agent_workbench.adapters.langchain._setup
+    agent_workbench.adapters.langchain._http
+    agent_workbench.adapters.langchain._exceptions
+    agent_workbench.adapters.langchain._errors_404
+    agent_workbench.adapters.langchain._usage
+    agent_workbench.adapters.langchain._preflight
+    agent_workbench.adapters.langchain._config_diagnostics
+    agent_workbench.adapters.langchain._messages
+    agent_workbench.adapters.langchain._provider_checks
+    agent_workbench.adapters.langchain._product
+    agent_workbench.adapters.llm_types
+    agent_workbench.adapters.config_hints
+    agent_workbench.adapters.ssl_setup
+    agent_workbench.adapters.toml_utils
+forbidden_modules =
+    agent_workbench.*
+    agent_workbench.adapters.*
+    langgraph
+ignore_imports =
+    agent_workbench.adapters.langchain._usage -> agent_workbench.adapters.llm_types
+    agent_workbench.adapters.langchain._provider_checks -> agent_workbench.adapters.config_hints
+
+[importlinter:contract:langchain_model_layer_ancestors]
+name = LangChain Model Layer No Ancestor Imports
+type = forbidden
+as_packages = False
+source_modules =
+    agent_workbench.adapters.langchain.anthropic_backend
+    agent_workbench.adapters.langchain.gemini_backend
+    agent_workbench.adapters.langchain.ollama_backend
+    agent_workbench.adapters.langchain.openai_backend
+    agent_workbench.adapters.langchain._models
+    agent_workbench.adapters.langchain._setup
+    agent_workbench.adapters.langchain._http
+    agent_workbench.adapters.langchain._exceptions
+    agent_workbench.adapters.langchain._errors_404
+    agent_workbench.adapters.langchain._usage
+    agent_workbench.adapters.langchain._preflight
+    agent_workbench.adapters.langchain._config_diagnostics
+    agent_workbench.adapters.langchain._messages
+    agent_workbench.adapters.langchain._provider_checks
+    agent_workbench.adapters.langchain._product
+    agent_workbench.adapters.llm_types
+    agent_workbench.adapters.config_hints
+    agent_workbench.adapters.ssl_setup
+    agent_workbench.adapters.toml_utils
+forbidden_modules =
+    agent_workbench
+    agent_workbench.adapters
+    agent_workbench.adapters.langchain
+
+# Third-party modules of the model layer: allowed in adapters only.
+[importlinter:contract:langchain_core_isolation]
+name = langchain_core only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langchain_core
+ignore_imports =
+    agent_workbench.adapters.** -> langchain_core
+
+[importlinter:contract:langchain_openai_isolation]
+name = langchain_openai only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langchain_openai
+ignore_imports =
+    agent_workbench.adapters.** -> langchain_openai
+
+[importlinter:contract:langchain_google_genai_isolation]
+name = langchain_google_genai only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langchain_google_genai
+ignore_imports =
+    agent_workbench.adapters.** -> langchain_google_genai
+
+[importlinter:contract:langchain_anthropic_isolation]
+name = langchain_anthropic only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langchain_anthropic
+ignore_imports =
+    agent_workbench.adapters.** -> langchain_anthropic
+
+[importlinter:contract:langchain_ollama_isolation]
+name = langchain_ollama only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langchain_ollama
+ignore_imports =
+    agent_workbench.adapters.** -> langchain_ollama
+
+[importlinter:contract:openai_isolation]
+name = openai only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    openai
+ignore_imports =
+    agent_workbench.adapters.** -> openai
+
+[importlinter:contract:anthropic_isolation]
+name = anthropic only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    anthropic
+ignore_imports =
+    agent_workbench.adapters.** -> anthropic
+
+[importlinter:contract:google_isolation]
+name = google only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    google
+ignore_imports =
+    agent_workbench.adapters.** -> google
+
+[importlinter:contract:ollama_isolation]
+name = ollama only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    ollama
+ignore_imports =
+    agent_workbench.adapters.** -> ollama
+
+[importlinter:contract:httpx_isolation]
+name = httpx only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    httpx
+ignore_imports =
+    agent_workbench.adapters.** -> httpx
+
+[importlinter:contract:mcp_coder_utils_isolation]
+name = mcp_coder_utils only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    mcp_coder_utils
+ignore_imports =
+    agent_workbench.adapters.** -> mcp_coder_utils

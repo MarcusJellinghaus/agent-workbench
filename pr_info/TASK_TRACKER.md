@@ -27,9 +27,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 2: Copy the LangChain model layer (15 source modules) — [step_2.md](./steps/step_2.md)
-- [ ] Implementation: copy the modules, add packaging/extras, mypy, deptry, import-linter, vulture and large-file entries
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, deptry, tach, check_file_size) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: copy the modules, add packaging/extras, mypy, deptry, import-linter, vulture and large-file entries
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, deptry, tach, check_file_size) — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: Copy model-layer tests, part 1 (conftest, backends, http, exceptions, messages) — [step_3.md](./steps/step_3.md)
 - [ ] Implementation: trimmed conftest and the seven test copies, vulture whitelist if needed

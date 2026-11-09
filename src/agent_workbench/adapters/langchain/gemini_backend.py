@@ -1,0 +1,45 @@
+# Copied from mcp_coder src/mcp_coder/llm/providers/langchain/gemini_backend.py at commit f88e6b55 (MarcusJellinghaus/mcp_coder#1400).
+"""LangChain Google Gemini backend.
+
+Raises ImportError with installation instructions if langchain_google_genai
+is not installed.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from ._product import INSTALL_HINT
+
+# pylint: disable=import-error
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from pydantic import SecretStr
+except ImportError as exc:
+    raise ImportError(
+        f"LangChain Gemini backend requires extra dependencies.\n{INSTALL_HINT}"
+    ) from exc
+
+
+# Gemini SDK (google-genai) does not support custom httpx clients or SSL
+# contexts. Proxy/SSL relies on the global truststore activation done at CLI
+# entry by mcp_coder.utils.ssl_setup.ensure_truststore(). See issue #562.
+def create_gemini_model(
+    model: str,
+    api_key: str | None,
+    timeout: int = 30,
+) -> ChatGoogleGenerativeAI:
+    """Create a Gemini chat model without invoking it.
+
+    Returns:
+        Configured ChatGoogleGenerativeAI instance.
+    """
+    effective_api_key = os.getenv("GEMINI_API_KEY") or api_key
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "timeout": timeout,
+    }
+    if effective_api_key:
+        kwargs["google_api_key"] = SecretStr(effective_api_key)
+    return ChatGoogleGenerativeAI(**kwargs)
