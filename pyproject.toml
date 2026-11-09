@@ -261,11 +261,14 @@ post_install_checks = [
 
 [tool.mcp-coder.install-from-github]
 # GitHub HEAD versions, installed in the same uv call as the project so they win
-# over PyPI (CI and tools/reinstall_local.*). Empty: PyPI releases are used.
+# over PyPI (CI and tools/reinstall_local.*).
+# Installed WITH deps (leaves — picks up new external deps)
 packages = [
-    # "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
-    # "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
-    # "mcp-tools-py @ git+https://github.com/MarcusJellinghaus/mcp-tools-py.git",
+    "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
+    "mcp-tools-py @ git+https://github.com/MarcusJellinghaus/mcp-tools-py.git",
+    "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git",
 ]
+# Installed WITHOUT deps (depends on all siblings — avoid downgrading)
 packages-no-deps = [
+    "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
 ]
