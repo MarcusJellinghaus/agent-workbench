@@ -51,7 +51,8 @@ verify_config(cf):                                   # mirrors mcp_coder verify_
                 [Hint|info|See the Configuration section of the README to create it]; has_error False
     parse_error -> [Config file|error|invalid TOML], [Parse error|error|<parse_error>]; return (entries, True)
     ok       -> [Config file|ok|<path>]
-    per key in LLM_KEYS (label "[llm]"): env var set -> ok "<key> configured (env var)";
+    per key in LLM_KEYS (label "[llm]"): env var set -> ok "<key> configured (env var)", or
+        "<key> configured (env var, also in config.toml)" when the key is in the file too (as mcp_coder);
         wrong type -> error "<key>: expected str, got <type> ('<value>')"; in file -> ok "<key> configured (config.toml)";
         else info "<key> not configured"   (no [llm] table and no env var at all -> single info "not configured")
     unknown keys -> warning "unknown key: <key>" + (" — " + hint) from unknown_key_hint("llm", key, LLM_KEYS)
@@ -71,27 +72,44 @@ else `0`. `available_models` / `model_check` are never consulted – they stay o
 (`check_provider` already keeps them out), so `--check-models` cannot change the exit code.
 
 ## DATA
-`VerifyReport` as above. For a missing provider package `install_hints == ["pip install langchain-openai"]`
-(raw package, as mcp_coder). A runtime `ImportError` from a backend ends in `test_prompt_error` and names
-`agent-workbench[langchain]` (from `_product.INSTALL_HINT`).
+`VerifyReport` as above. For a missing provider package (only `langchain_openai` reported missing)
+`install_hints == ["pip install langchain-openai"]` (raw package, as mcp_coder). A runtime `ImportError`
+from a backend ends in `test_prompt_error` and names `agent-workbench[langchain]` (from `_product.INSTALL_HINT`).
 
 ## Tests (write first, `tests/services/test_verify.py`)
-Fixture: `monkeypatch.delenv` the `AGENT_WORKBENCH_LLM_*` and vendor key vars (`OPENAI_API_KEY`, …,
-`OPENAI_BASE_URL`, `OLLAMA_HOST`), patch `agent_workbench.adapters.config.config_file_path` to a
-`tmp_path` file. Patch `agent_workbench.adapters.llm.create_chat_model` to return a `MagicMock`
-(never the real backends, so no `langchain_core` is needed):
+Fixtures:
+- autouse: `monkeypatch.delenv` the `AGENT_WORKBENCH_LLM_*` and vendor key vars (`OPENAI_API_KEY`, …,
+  `OPENAI_BASE_URL`, `OLLAMA_HOST`), patch `agent_workbench.adapters.config.config_file_path` to a
+  `tmp_path` file;
+- `fake_chat_model` (used by every test below except the runtime-import-error one): patch
+  `agent_workbench.adapters.langchain._setup._create_chat_model` to return a `MagicMock`. Patch it there,
+  not `agent_workbench.adapters.llm.create_chat_model`: `check_provider` → `_config_diagnostics.resolve_target`
+  calls `_setup._create_chat_model` directly for `openai` / `ollama`, and `llm.create_chat_model` looks the
+  name up at call time, so this one patch covers both paths. No test here imports the real `langchain_openai`,
+  `langchain_ollama` or `langchain_core` backends (rule in summary.md "Rules for every step").
+
+Passing config (`backend = "openai"`, `model = "gpt-4o-mini"`, `api_key = "sk-test"` in the `tmp_path`
+config file): `validate()` returns no contract findings, so `overall_ok` depends only on the package rows.
+The happy-path, package-missing, check-models and unreachable tests use it.
 - CONFIG rows – one test each, asserting `config_entries` / `config_has_error`: file ok, env-var source,
-  empty env var, missing file (warning + expected path + README hint), invalid TOML (error + Parse error row),
-  wrong type (error), unknown key (warning with "did you mean" hint, e.g. `modle`);
-- happy path: `backend = "openai"`, fake model answering → `test_prompt_error is None`, `exit_code` 0
-  when `_check_package_installed` is patched to `True`;
-- package missing: `_provider_checks._check_package_installed` patched to `False` → install hint
-  `pip install langchain-openai`, `exit_code` 1;
-- unreachable provider: fake model `invoke` raises `ConnectionError` → `test_prompt_error` set, `exit_code` 1;
-- runtime import error: `create_chat_model` raises `ImportError(INSTALL_HINT)` → error text names
-  `agent-workbench[langchain]`;
-- `check_models=True` with failing listing (`_provider_checks._list_models_for_backend` patched to
-  `{"ok": False, "value": [], "error": "x"}`) and an otherwise passing run → `exit_code` 0;
+  env var and file both set (`"<key> configured (env var, also in config.toml)"`), empty env var, missing
+  file (warning + expected path + README hint), invalid TOML (error + Parse error row), wrong type (error),
+  unknown key (warning with "did you mean" hint, e.g. `modle`);
+- happy path: passing config, fake model answering, `_check_package_installed` patched to `True` →
+  `test_prompt_error is None`, `overall_ok` True, `exit_code` 0;
+- package missing: passing config, `_provider_checks._check_package_installed` patched with a
+  `side_effect` keyed on the package name that returns `False` only for `"langchain_openai"` →
+  `install_hints == ["pip install langchain-openai"]`, `exit_code` 1;
+- unreachable provider: passing config, `_check_package_installed` → `True`, fake model `invoke` raises
+  `ConnectionError` → `test_prompt_error` set, `exit_code` 1;
+- runtime import error, through the real backend: no `fake_chat_model`; passing config;
+  `monkeypatch.setitem(sys.modules, "langchain_openai", None)` (the import in `openai_backend` then raises
+  `ImportError`) and `monkeypatch.delitem(sys.modules, "agent_workbench.adapters.langchain.openai_backend",
+  raising=False)` so the module is re-imported → `test_prompt_error` contains `_product.INSTALL_HINT`
+  (`agent-workbench[langchain]`), `exit_code` 1;
+- `check_models=True` with passing config, `_check_package_installed` → `True`, failing listing
+  (`_provider_checks._list_models_for_backend` patched to `{"ok": False, "value": [], "error": "x"}`) →
+  `exit_code` 0;
 - ollama without tool calling (`_models.check_ollama_tool_capability` / `_models._check_ollama_daemon`
   patched in `agent_workbench.adapters.langchain._models`) → `overall_ok` False → `exit_code` 1;
 - config error alone → `exit_code` 1; `compute_exit_code` truth table.
