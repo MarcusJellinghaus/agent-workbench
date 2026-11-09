@@ -195,6 +195,10 @@ async def _provider_error_message(
     """Return the user-facing message of *exc* mapped by ``map_provider_error``.
 
     Runs in a thread: on a 404 the mapping lists models over the network.
+
+    Raises:
+        AssertionError: If map_provider_error returns instead of raising
+            (should not happen).
     """
     try:
         await asyncio.to_thread(llm.map_provider_error, exc, llm_config, chat_model)
