@@ -32,10 +32,12 @@ No `apps` module is named like a top-level package (Chainlit puts the shim's fol
   streams text through `on_text`, updates `token_usage` only for a completed turn and
   returns an error message or `None`. Timeouts and error handling live in one place; tests
   pass `list.append`-style callbacks and their own graph / model / config.
-- **Timeouts:** overall cap via `asyncio.timeout(overall)`; inactivity via
-  `asyncio.wait_for(anext(events), idle)` per stream event; `cm.expired()` tells which fired.
+- **Timeouts:** overall cap via `asyncio.timeout(overall)`; inactivity via a nested
+  `asyncio.timeout(idle)` rescheduled after every stream event; `expired()` on each tells
+  which fired (also when langgraph surfaces the cancel as `NodeCancelledError`).
 - **Errors, in order:** timeout → own message; `GraphRecursionError` → own message;
-  `NodeCancelledError` → re-raised as `asyncio.CancelledError`; any other `Exception` →
+  `NodeCancelledError` → timeout message if a timer expired, else re-raised as
+  `asyncio.CancelledError`; any other `Exception` →
   `asyncio.to_thread(map_provider_error, …)`, the mapped exception's text is the message.
   `CancelledError` (Stop) is never caught.
 - **Final text fallback:** if no `on_chat_model_stream` delta arrived in the turn, the last

@@ -69,21 +69,46 @@ error: `f"Error: {mapped_exc}"`.
 - Never `except BaseException`; `asyncio.CancelledError` propagates; the function adds no
   message on Stop.
 - Close the event stream on exit (`contextlib.aclosing`).
+- Timeouts run inside the turn's own task, so cancelling a stalled model node can surface
+  as langgraph's `NodeCancelledError` (an `Exception`) instead of `CancelledError`; then
+  neither `asyncio.timeout` nor `wait_for` turns it into `TimeoutError`. mcp_coder avoids
+  this only because its timeouts sit on the consumer side of a thread / queue. Hence:
+  - idle timer = a second `asyncio.timeout` (no `wait_for`), rescheduled after every event
+    (`idle.reschedule(loop.time() + idle_timeout)`), so `idle.expired()` tells whether it
+    fired;
+  - the `NodeCancelledError` branch checks `overall.expired()` and `idle.expired()` first
+    and returns the matching timeout message; it re-raises `CancelledError` only when
+    neither fired (Stop).
+- Probe (`.scratch/`, before the tests), with a test-local model whose `_agenerate` awaits
+  a never-set event, inside `build_graph(model, [], InMemorySaver())`:
+  1. cancel the stalled node from outside via `asyncio.timeout` (overall-style) → record
+     the exception `astream_events` raises (`CancelledError` or `NodeCancelledError`) and
+     that `expired()` is True afterwards;
+  2. the same via the rescheduled idle `asyncio.timeout` nested inside the overall one;
+  3. `_agenerate` raising `asyncio.CancelledError` itself → record whether it comes out as
+     `NodeCancelledError`.
+  Note the results in the step's commit message body; the tests below rely on them.
 
 ## ALGORITHM
 ```
-usage, streamed = {}, False; cm = asyncio.timeout(overall_timeout)
+usage, streamed = {}, False
+overall = asyncio.timeout(overall_timeout); idle = asyncio.timeout(idle_timeout)
 try:
-  async with cm, aclosing(graph.astream_events(input, run_config, version="v2")) as events:
-    while (event := await wait_for(anext(events, _END), idle_timeout)) is not _END:
+  async with overall, idle, aclosing(graph.astream_events(input, run_config, version="v2")) as events:
+    async for event in events:
+      idle.reschedule(loop.time() + idle_timeout)
       stream event → on_text(delta), streamed = True;  end event → usage = add_usage(usage, output)
   if not streamed: on_text(last AIMessage text from await graph.aget_state(run_config))
   token_usage.update(...); return None
-except TimeoutError: return OVERALL if cm.expired() else IDLE
+except TimeoutError: return OVERALL if overall.expired() else IDLE
 except GraphRecursionError: return STEPS
-except NodeCancelledError as exc: raise CancelledError from exc   # only if present at 1.2.9
+except NodeCancelledError as exc:                                  # only if present at 1.2.9
+  if overall.expired(): return OVERALL
+  if idle.expired(): return IDLE
+  raise CancelledError from exc                                    # Stop
 except Exception as exc: map in thread → "Error: …"
 ```
+(`idle` covers only the event loop: `aget_state` and the fallback `on_text` run after it.)
 
 ## DATA
 Returns `None` on success, else the user-facing message string. `token_usage` mutated only
@@ -100,14 +125,21 @@ Graph from `build_graph(model, [], InMemorySaver())`; `on_text` collects into a 
 - Provider error: model raises; `adapters.llm.map_provider_error` patched to raise
   `RuntimeError("mapped")` → message `"Error: mapped"`; no vendor SDK loaded.
 - Inactivity timeout: test-local `BaseChatModel` whose `_agenerate` awaits a never-set
-  event; `idle_timeout=0.05` → idle message.
-- Overall timeout: same stalling model, `idle_timeout=5`, `overall_timeout=0.05` → overall message.
+  event; `idle_timeout=0.05` → idle message. Expected path (per the probe): stall in
+  `_agenerate` → idle timer cancels → `NodeCancelledError` or `CancelledError`→`TimeoutError`
+  → `idle.expired()` check → idle message. Asserts the idle message is returned (not a
+  `CancelledError`) and `map_provider_error` (patched spy) is not called.
+- Overall timeout: same stalling model, `idle_timeout=5`, `overall_timeout=0.05` → same
+  path via `overall.expired()` → overall message; asserts the overall message, not a Stop.
 - Stop: start `run_turn` as a task with the stalling model, wait until it is inside
   `_agenerate`, cancel → `CancelledError` raised, `on_text` not called, `map_provider_error`
   (patched spy) not called.
 - `NodeCancelledError` (only if the probe found the class at 1.2.9; otherwise omitted, no
-  skip): model raising `asyncio.CancelledError` from `_agenerate` → `run_turn` raises
-  `CancelledError`, `map_provider_error` (patched spy) not called.
+  skip): model raising `asyncio.CancelledError` from `_agenerate` (probe 3 confirmed it
+  comes out as `NodeCancelledError`) → `run_turn` raises `CancelledError` whose
+  `__cause__` is a `NodeCancelledError` (proves the re-raise branch ran);
+  `map_provider_error` (patched spy) not called. If probe 3 shows no wrapping, raise
+  `NodeCancelledError` from `_agenerate` directly instead.
 - Usage: scripted messages with `usage_metadata` → per-turn sum (two model calls in one
   turn, via a tool call), session total over two turns; a failed turn leaves `token_usage`
   unchanged.

@@ -14,6 +14,9 @@ and stop.
 - Create `src/agent_workbench/apps/ui_target.py`
 - Create `tests/apps/test_ui_handlers.py`
 - Modify `vulture_whitelist.py` only for names vulture reports
+- Modify `pyproject.toml` only if Chainlit's types fail mypy here (first `src` use of
+  `cl.Message`, `cl.on_message`, `chainlit.server.app`): add the `chainlit`
+  `ignore_missing_imports` / `follow_imports = "skip"` override and name it in the PR
 
 ## WHAT
 ```python
