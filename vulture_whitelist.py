@@ -46,3 +46,11 @@ _._handle_provider_error
 # adapters/langchain/_usage.py: usage helpers, used by the agent layer (#15) and the copied tests
 _._extract_usage
 _._sum_usage
+
+# tests/adapters/langchain/conftest.py: autouse session fixture for mocking langchain modules
+_._mock_langchain_modules
+# tests/adapters/langchain/conftest.py: fake langchain_core.messages attribute, read by the code under test
+_.ToolMessage
+# tests/adapters/langchain/test_langchain_{anthropic,gemini,http,ollama,openai}.py: MagicMock
+# return values, read when the code under test calls the mock
+_.return_value

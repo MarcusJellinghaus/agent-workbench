@@ -32,9 +32,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 3: Copy model-layer tests, part 1 (conftest, backends, http, exceptions, messages) — [step_3.md](./steps/step_3.md)
-- [ ] Implementation: trimmed conftest and the seven test copies, vulture whitelist if needed
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: trimmed conftest and the seven test copies, vulture whitelist if needed
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture) — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Copy model-layer tests, part 2 (contract, diagnostics, models, provider checks, resolve_target) — [step_4.md](./steps/step_4.md)
 - [ ] Implementation: the six test copies, vulture whitelist / large-files allowlist if needed
