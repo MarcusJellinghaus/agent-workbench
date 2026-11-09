@@ -122,6 +122,17 @@ forbidden_modules =
     agent_workbench.adapters
     agent_workbench.adapters.langchain
 
+# chainlit: the chat UI. Allowed in apps only.
+[importlinter:contract:chainlit_isolation]
+name = chainlit only in apps
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    chainlit
+ignore_imports =
+    agent_workbench.apps.** -> chainlit
+
 # langgraph: the agent graph. Allowed in apps only.
 [importlinter:contract:langgraph_isolation]
 name = langgraph only in apps

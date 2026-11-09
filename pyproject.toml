@@ -93,6 +93,7 @@ dev = [
 
 [project.scripts]
 agent-workbench = "agent_workbench.interfaces.cli:main"
+agent-workbench-ui = "agent_workbench.apps.ui_launcher:main"
 
 [project.urls]
 "Homepage" = "https://github.com/MarcusJellinghaus/agent-workbench"
@@ -275,9 +276,6 @@ optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
 DEP003 = [
     "openai", "anthropic", "google", "ollama", "pydantic",
 ]
-# DEP002: declared ahead of its first src import so the environment has it
-# before the step that needs it; #15 step 8 removes chainlit.
-DEP002 = ["chainlit"]
 
 [tool.mcp-tools-py]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)

@@ -4,10 +4,13 @@ Chainlit reads its environment once, at its first import, so this module must no
 Chainlit at module level: ``prepare_chainlit_env`` has to run first.
 """
 
+import argparse
 import json
 import logging
 import os
+import sys
 from importlib.metadata import version
+from importlib.util import find_spec
 from pathlib import Path
 
 from agent_workbench.apps.origin_check import local_origins
@@ -16,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 CHAINLIT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
+
+_UI_DEPENDENCIES = ("langgraph", "langchain_core")
 
 # Env vars that would switch on a Chainlit feature this app does not configure (data
 # layer, chat platforms, custom auth, root path, TLS), plus the ChainlitConfig fields
@@ -121,3 +126,79 @@ def write_chainlit_config(app_root: Path, port: int) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _missing_dependency() -> str | None:
+    """Return the first module of ``_UI_DEPENDENCIES`` that is not installed, or None."""
+    for name in _UI_DEPENDENCIES:
+        if find_spec(name) is None:
+            return name
+    return None
+
+
+def _run_chainlit(target: str) -> None:
+    """Import chainlit.cli here only: it applies nest_asyncio and logging.basicConfig."""
+    from chainlit.cli import run_chainlit
+
+    run_chainlit(target)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the chat page: dependency check, ``verify``, then Chainlit.
+
+    Args:
+        argv: Command-line arguments; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        Process exit code: 0 after Chainlit returns, 1 on a missing dependency or a
+        failed ``verify``.
+    """
+    # Ensure stdout/stderr use UTF-8 on all platforms (e.g. Windows cp1252 default).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
+    from agent_workbench.services.logging_setup import LOG_LEVELS, setup_logging
+
+    parser = argparse.ArgumentParser(
+        prog="agent-workbench-ui", description="Open the agent-workbench chat page."
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=LOG_LEVELS,
+        default="OUTPUT",
+        metavar="LEVEL",
+        help=f"logging level: {', '.join(LOG_LEVELS)} (default: OUTPUT)",
+    )
+    args = parser.parse_args(argv)
+    setup_logging(args.log_level)
+
+    from agent_workbench.adapters.ssl_setup import ensure_truststore
+
+    ensure_truststore()
+
+    missing = _missing_dependency()
+    if missing:
+        print(
+            f"Missing package '{missing}'. Install it with: "
+            'pip install "agent-workbench[langchain]"',
+            file=sys.stderr,
+        )
+        return 1
+
+    from agent_workbench.interfaces.verify_formatting import format_report
+    from agent_workbench.services.verify import run_verify
+
+    report = run_verify()
+    if report.exit_code:
+        print(format_report(report))
+        return 1
+
+    from agent_workbench.adapters.config import app_data_dir
+
+    root = prepare_chainlit_env(app_data_dir())
+    write_chainlit_config(root, chainlit_port())
+    _run_chainlit(str(Path(__file__).with_name("ui_target.py")))
+    return 0
