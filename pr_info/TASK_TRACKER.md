@@ -52,9 +52,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 7: Logging setup in `services/logging_setup.py` — [step_7.md](./steps/step_7.md)
-- [ ] Implementation: tests first, then `setup_logging` / `LOG_LEVELS`, `.importlinter` services entry
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests first, then `setup_logging` / `LOG_LEVELS`, `.importlinter` services entry
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
+- [x] Commit message prepared
 
 ### Step 8: `verify` checks and exit code in `services/verify.py` — [step_8.md](./steps/step_8.md)
 - [ ] Implementation: tests first, then `VerifyReport`, `verify_config`, `collect_install_hints`, `compute_exit_code`, `run_verify`

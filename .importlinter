@@ -224,7 +224,7 @@ ignore_imports =
     agent_workbench.adapters.** -> httpx
 
 [importlinter:contract:mcp_coder_utils_isolation]
-name = mcp_coder_utils only in adapters
+name = mcp_coder_utils only in adapters and services
 type = forbidden
 source_modules =
     agent_workbench
@@ -232,3 +232,4 @@ forbidden_modules =
     mcp_coder_utils
 ignore_imports =
     agent_workbench.adapters.** -> mcp_coder_utils
+    agent_workbench.services.** -> mcp_coder_utils
