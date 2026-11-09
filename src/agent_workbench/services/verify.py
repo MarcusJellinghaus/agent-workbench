@@ -6,7 +6,6 @@ this module stays light (no ``langchain_core`` at import time).
 """
 
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -95,8 +94,11 @@ def verify_config(
         return entries, True
     else:
         entries.append({"label": "Config file", "status": "ok", "value": str(path)})
+        if config_file.llm_type_error:
+            entries.append(_llm_entry("error", config_file.llm_type_error))
+            return entries, True
 
-    env = {key: os.environ.get(var) for key, var in adapters_config.ENV_VARS.items()}
+    env = adapters_config.env_values()
     section = config_file.llm
     if not section:
         # Section absent: report env vars, but don't list every unset key.

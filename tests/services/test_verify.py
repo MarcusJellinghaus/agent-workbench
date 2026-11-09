@@ -165,6 +165,31 @@ def test_config_wrong_type(config_path: Path) -> None:
     assert ("error", "model: expected str, got int ('42')") in _llm_values(entries)
 
 
+def test_config_wrong_type_overridden_by_env_var(
+    config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(config_path, "[llm]\nmodel = 42\n")
+    monkeypatch.setenv(ENV_VARS["model"], "gpt-4o")
+    entries, has_error = _entries(config_path)
+    assert not has_error
+    assert ("ok", "model configured (env var, also in config.toml)") in _llm_values(
+        entries
+    )
+
+
+def test_config_llm_not_a_table(config_path: Path) -> None:
+    _write(config_path, "llm = 5\n")
+    entries, has_error = _entries(config_path)
+    assert has_error
+    assert entries[0] == {
+        "label": "Config file",
+        "status": "ok",
+        "value": str(config_path),
+    }
+    assert _llm_values(entries) == [("error", "expected table, got int")]
+    assert not [e for e in entries if e["label"] == "Parse error"]
+
+
 def test_config_unknown_key(config_path: Path) -> None:
     _write(config_path, '[llm]\nmodle = "x"\n')
     entries, has_error = _entries(config_path)

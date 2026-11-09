@@ -37,12 +37,14 @@ class ConfigFile:
         exists: Whether the file exists.
         parse_error: Formatted TOML / read error, or None.
         llm: Raw ``[llm]`` table; empty when absent or unreadable.
+        llm_type_error: Set when ``[llm]`` is present but not a table.
     """
 
     path: Path
     exists: bool
     parse_error: str | None
     llm: dict[str, Any]
+    llm_type_error: str | None = None
 
 
 def config_file_path() -> Path:
@@ -76,13 +78,25 @@ def read_config_file(path: Path | None = None) -> ConfigFile:
     llm = data.get("llm", {})
     if not isinstance(llm, dict):
         return ConfigFile(
-            path, True, f"[llm] must be a table, got {type(llm).__name__}", {}
+            path, True, None, {}, f"expected table, got {type(llm).__name__}"
         )
     return ConfigFile(path, True, None, llm)
 
 
+def env_values() -> dict[str, str | None]:
+    """Return the ``AGENT_WORKBENCH_LLM_*`` overrides; an empty value counts as unset.
+
+    Returns:
+        Mapping of each key in ``ENV_VARS`` to its env value or None.
+    """
+    return {key: os.environ.get(var) or None for key, var in ENV_VARS.items()}
+
+
 def wrong_type_keys(llm: Mapping[str, Any]) -> list[str]:
-    """Return the known keys whose value is not a string.
+    """Return the known keys whose config value is not a string.
+
+    A key overridden by its env var is not checked: the env value wins, as in
+    mcp_coder's ``get_config_values``.
 
     Args:
         llm: Raw ``[llm]`` table.
@@ -90,7 +104,12 @@ def wrong_type_keys(llm: Mapping[str, Any]) -> list[str]:
     Returns:
         Offending keys in ``LLM_KEYS`` order.
     """
-    return [key for key in LLM_KEYS if key in llm and not isinstance(llm[key], str)]
+    env = env_values()
+    return [
+        key
+        for key in LLM_KEYS
+        if key in llm and not env.get(key) and not isinstance(llm[key], str)
+    ]
 
 
 def load_llm_config(config_file: ConfigFile | None = None) -> LLMConfig:
@@ -110,6 +129,14 @@ def load_llm_config(config_file: ConfigFile | None = None) -> LLMConfig:
             config_file.path,
         )
         return LLMConfig()
+    if config_file.llm_type_error:
+        logger.warning(
+            "Ignoring config file %s: [llm] %s; see the CONFIG section of "
+            "`agent-workbench verify`.",
+            config_file.path,
+            config_file.llm_type_error,
+        )
+        return LLMConfig()
     bad_keys = wrong_type_keys(config_file.llm)
     if bad_keys:
         logger.warning(
@@ -119,7 +146,7 @@ def load_llm_config(config_file: ConfigFile | None = None) -> LLMConfig:
             ", ".join(bad_keys),
         )
         return LLMConfig()
-    env = {key: os.environ.get(var) or None for key, var in ENV_VARS.items()}
+    env = env_values()
     return LLMConfig(
         **{key: env.get(key) or config_file.llm.get(key) for key in LLM_KEYS}
     )

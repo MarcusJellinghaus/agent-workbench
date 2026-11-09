@@ -112,11 +112,20 @@ def test_invalid_toml(
     assert "verify" in caplog.text
 
 
-def test_llm_not_a_table(tmp_path: Path) -> None:
+def test_llm_not_a_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv(ENV_VARS["backend"], "ollama")
     config_file = read_config_file(_write(tmp_path, "llm = 5\n"))
-    assert config_file.parse_error == "[llm] must be a table, got int"
+    assert config_file.parse_error is None
+    assert config_file.llm_type_error == "expected table, got int"
     assert config_file.llm == {}
-    assert load_llm_config(config_file) == LLMConfig()
+
+    with caplog.at_level(logging.WARNING, logger="agent_workbench.adapters.config"):
+        assert load_llm_config(config_file) == LLMConfig()
+    assert "expected table" in caplog.text
 
 
 def test_wrong_type(
@@ -133,6 +142,33 @@ def test_wrong_type(
         assert load_llm_config(config_file) == LLMConfig()
     assert "model" in caplog.text
     assert "verify" in caplog.text
+
+
+def test_wrong_type_overridden_by_env_var(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = _write(tmp_path, '[llm]\nbackend = "openai"\nmodel = 123\n')
+    monkeypatch.setenv(ENV_VARS["model"], "from-env")
+    config_file = read_config_file(path)
+    assert wrong_type_keys(config_file.llm) == []
+
+    with caplog.at_level(logging.WARNING, logger="agent_workbench.adapters.config"):
+        assert load_llm_config(config_file) == LLMConfig(
+            backend="openai", model="from-env"
+        )
+    assert caplog.text == ""
+
+
+def test_wrong_type_empty_env_var_still_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(tmp_path, "[llm]\nmodel = 123\n")
+    monkeypatch.setenv(ENV_VARS["model"], "")
+    config_file = read_config_file(path)
+    assert wrong_type_keys(config_file.llm) == ["model"]
+    assert load_llm_config(config_file) == LLMConfig()
 
 
 def test_wrong_type_keys_ignores_unknown_keys() -> None:
