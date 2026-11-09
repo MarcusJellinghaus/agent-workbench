@@ -41,35 +41,15 @@ Source copies – only these changes:
 - import-order re-sort by `run_format_code`.
 
 ## HOW
-`pyproject.toml`:
-```toml
-dependencies = [
-    "pydantic>=2",
-    "langchain-core>=1.4.7",
-    "httpx>=0.27.0",
-    "truststore>=0.9.0",
-    "mcp-coder-utils>=0.1.6",   # token_fingerprint arrived after 0.1.5
-]
-[project.optional-dependencies]
-langchain-openai = ["langchain-openai>=0.2.0"]
-langchain-gemini = ["langchain-google-genai>=2.0.0"]
-langchain-anthropic = ["langchain-anthropic>=0.3.0"]
-langchain-ollama = ["langchain-ollama>=0.2.0"]
-langchain = ["agent-workbench[langchain-openai,langchain-gemini,langchain-anthropic,langchain-ollama]"]
-dev = ["agent-workbench[typecheck,coverage,langchain]", ..., "import-linter>=2.15", ...]
-```
-mypy overrides, verbatim from mcp_coder: `ignore_missing_imports = true` + `follow_imports = "skip"` for
-`["langchain_core", "langchain_core.*"]`, `["langchain_openai"]`, `["langchain_google_genai"]`,
-`["langchain_anthropic"]`, `["langchain_ollama"]`; `ignore_missing_imports = true` for
-`["openai", "openai.*"]`, `["anthropic", "anthropic.*"]`, `["google", "google.genai", "google.genai.*"]`,
-`["ollama", "ollama.*"]`, `["httpx", "httpx.*"]`.
-
-deptry:
-```toml
-[tool.deptry.per_rule_ignores]
-# DEP003: vendor SDKs imported behind try/except ImportError, supplied by the langchain-* extras.
-DEP003 = ["openai", "anthropic", "google", "ollama"]
-```
+`pyproject.toml`: **already done** in separate commits before this step (done ahead of this step so the
+environment could be reinstalled with the new packages). Structured as mcp_coder's: `dependencies` =
+`truststore>=0.9.0`, `mcp-coder-utils>=0.1.6`; extra `langchain-base` (`langchain-core>=1.4.7`,
+`httpx>=0.27.0`); provider extras `langchain-{openai,gemini,anthropic,ollama}` each pull
+`agent-workbench[langchain-base]` + their wrapper; meta extra `langchain`; `dev` includes `langchain`;
+`import-linter>=2.15`; mypy overrides verbatim from mcp_coder; deptry DEP003 =
+`openai`, `anthropic`, `google`, `ollama`, `pydantic`. `langgraph` / `langchain-mcp-adapters` (in
+mcp_coder's `langchain-base`) follow in #15 with the agent layer. Do not change these entries; only fix
+them if a check proves one wrong.
 
 `.importlinter` – add (keep `truststore_isolation` from Step 1):
 ```ini
