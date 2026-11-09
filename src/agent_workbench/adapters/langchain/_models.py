@@ -1,0 +1,344 @@
+# Copied from mcp_coder src/mcp_coder/llm/providers/langchain/_models.py at commit f88e6b55 (MarcusJellinghaus/mcp_coder#1400).
+"""Utilities for listing available LLM models per LangChain backend.
+
+Note: This module imports the underlying SDKs (google.genai, openai, anthropic)
+directly rather than through LangChain wrappers, because the LangChain wrapper
+libraries do not expose model-listing APIs. These imports are deferred inside
+each function so they only trigger when model listing is actually needed
+(e.g. to provide helpful error messages on NOT_FOUND errors).
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from ._exceptions import (
+    ANTHROPIC_AUTH_ERRORS,
+    CONNECTION_ERRORS,
+    GOOGLE_CLIENT_ERRORS,
+    OPENAI_AUTH_ERRORS,
+    is_google_auth_error,
+    raise_auth_error,
+    raise_connection_error,
+)
+from ._http import create_http_client
+from ._product import INSTALL_HINT
+
+
+def _resolve_ollama_host(base_url: str | None) -> str | None:
+    """Resolve OLLAMA_HOST env > base_url config > None, normalize to URL.
+
+    Args:
+        base_url: Optional base URL from config (host:port or full URL).
+
+    Returns:
+        Normalized URL string (with http:// prefix if no scheme), or None
+        when neither OLLAMA_HOST nor base_url is set.
+    """
+    host = os.getenv("OLLAMA_HOST") or base_url
+    if host and "://" not in host:
+        host = f"http://{host}"
+    return host
+
+
+def _check_ollama_daemon(
+    api_key: str | None,
+    base_url: str | None,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """Probe the local Ollama daemon to verify reachability.
+
+    Args:
+        api_key: Optional bearer token for proxy-auth setups.
+        base_url: Optional Ollama host (host:port or full URL); resolved via
+            :func:`_resolve_ollama_host`.  Falls back to
+            ``http://localhost:11434`` when neither env nor base_url is set.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        Verify-style dict with ``ok: bool`` and ``value: str`` describing the
+        outcome (reachable / auth required / not reachable).
+    """
+    try:
+        import ollama  # pylint: disable=import-outside-toplevel,import-error
+    except ImportError as exc:
+        return {
+            "ok": False,
+            "value": f"ollama Python client not installed: {exc}",
+        }
+
+    host = _resolve_ollama_host(base_url) or "http://localhost:11434"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    response_error_cls = getattr(ollama, "ResponseError", None)
+
+    client_kwargs: dict[str, Any] = {"host": host, "timeout": timeout}
+    if headers is not None:
+        client_kwargs["headers"] = headers
+
+    try:
+        try:
+            client = ollama.Client(**client_kwargs)
+        except TypeError:
+            client = ollama.Client(host=host)
+        client.list()
+        return {
+            "ok": True,
+            "value": f"local Ollama daemon reachable at {host}",
+        }
+    except Exception as exc:  # pylint: disable=broad-except
+        if response_error_cls is not None and isinstance(exc, response_error_cls):
+            status = getattr(exc, "status_code", None)
+            msg = str(exc)
+            if status in (401, 403) or "401" in msg or "403" in msg:
+                return {
+                    "ok": False,
+                    "value": (
+                        "local Ollama daemon reachable but auth required — "
+                        "set OLLAMA_API_KEY or api_key in config.toml"
+                    ),
+                }
+        return {
+            "ok": False,
+            "value": "local Ollama daemon not reachable — is `ollama serve` running?",
+        }
+
+
+def check_ollama_tool_capability(
+    model: str,
+    api_key: str | None,
+    base_url: str | None,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """Probe ``/api/show`` to verify the model advertises the ``tools`` capability.
+
+    Returned dict is the verify-style ``{"ok": bool, "value": str}`` shape so
+    the same value can be rendered by ``mcp-coder verify`` and consumed by
+    the agent pre-flight check, sharing one wording across both call sites.
+
+    Args:
+        model: Configured model name (e.g. ``"llama3"``).  An empty string
+            short-circuits to ``ok: False`` without any network access.
+        api_key: Optional bearer token for proxy-auth setups.
+        base_url: Optional Ollama host (host:port or full URL); resolved via
+            :func:`_resolve_ollama_host`.  Falls back to
+            ``http://localhost:11434`` when neither env nor base_url is set.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        Verify-style dict with ``ok: bool`` and ``value: str`` describing
+        whether the model supports tool calling.
+    """
+    if not model:
+        return {"ok": False, "value": "no model configured"}
+
+    try:
+        import ollama  # pylint: disable=import-outside-toplevel,import-error
+    except ImportError as exc:
+        return {
+            "ok": False,
+            "value": f"ollama Python client not installed: {exc}",
+        }
+
+    host = _resolve_ollama_host(base_url) or "http://localhost:11434"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+
+    client_kwargs: dict[str, Any] = {"host": host, "timeout": timeout}
+    if headers is not None:
+        client_kwargs["headers"] = headers
+
+    try:
+        try:
+            client = ollama.Client(**client_kwargs)
+        except TypeError:
+            client = ollama.Client(host=host)
+        info: Any = client.show(model=model)
+        if isinstance(info, dict):
+            caps = info.get("capabilities") or []
+        else:
+            caps = getattr(info, "capabilities", None) or []
+        if "tools" in caps:
+            return {
+                "ok": True,
+                "value": f"model {model!r} supports tools",
+            }
+        return {
+            "ok": False,
+            "value": (
+                f"model {model!r} does not advertise the 'tools' capability — "
+                "agent mode requires a tool-calling model"
+            ),
+        }
+    except Exception as exc:  # pylint: disable=broad-except
+        return {
+            "ok": False,
+            "value": f"could not verify tool capability for {model!r}: {exc}",
+        }
+
+
+def list_gemini_models(api_key: str | None) -> list[str]:
+    """Return model names supporting generateContent for the given Gemini API key.
+
+    Returns short names without the 'models/' prefix, matching the format
+    expected by ``[llm.langchain] model = "..."`` in config.toml.
+
+    Args:
+        api_key: Gemini API key, or None to use default credentials.
+
+    Returns:
+        List of model name strings available for the given key.
+
+    Raises:
+        ImportError: If google-genai is not installed (part of mcp-coder[langchain]).
+    """  # Also raises LLMAuthError / LLMConnectionError via helpers.
+    try:
+        import google.genai as genai  # pylint: disable=import-error
+    except ImportError as exc:
+        raise ImportError(
+            f"google-genai is required to list Gemini models.\n{INSTALL_HINT}"
+        ) from exc
+    try:
+        client = genai.Client(api_key=api_key)
+        return [
+            m.name.removeprefix("models/")
+            for m in client.models.list()
+            if m.name is not None and "generateContent" in (m.supported_actions or [])
+        ]
+    except GOOGLE_CLIENT_ERRORS as exc:
+        if is_google_auth_error(exc):
+            raise_auth_error("Gemini", "GEMINI_API_KEY", exc)
+        raise_connection_error("Gemini", "GEMINI_API_KEY", exc)
+    except CONNECTION_ERRORS as exc:
+        raise_connection_error("Gemini", "GEMINI_API_KEY", exc)
+
+
+def list_openai_models(api_key: str | None, base_url: str | None = None) -> list[str]:
+    """Return model IDs available for the given OpenAI API key.
+
+    Args:
+        api_key: OpenAI API key, or None to use default credentials.
+        base_url: Optional custom base URL for the API.
+
+    Returns:
+        Sorted list of model ID strings.
+
+    Raises:
+        ImportError: If openai is not installed (part of mcp-coder[langchain]).
+    """  # Also raises LLMAuthError / LLMConnectionError via helpers.
+    try:
+        import openai  # pylint: disable=import-outside-toplevel
+    except ImportError as exc:
+        raise ImportError(
+            f"openai is required to list OpenAI models.\n{INSTALL_HINT}"
+        ) from exc
+    try:
+        client = openai.OpenAI(
+            api_key=api_key if api_key else None,
+            base_url=base_url if base_url else None,
+            http_client=create_http_client(),
+        )
+        return sorted(m.id for m in client.models.list())
+    except OPENAI_AUTH_ERRORS as exc:
+        raise_auth_error("OpenAI", "OPENAI_API_KEY", exc)
+    except CONNECTION_ERRORS as exc:
+        raise_connection_error(
+            "OpenAI",
+            "OPENAI_API_KEY",
+            exc,
+            base_url_hint="base_url if using a custom server",
+        )
+
+
+def list_anthropic_models(api_key: str | None) -> list[str]:
+    """Return model IDs available for the given Anthropic API key.
+
+    Args:
+        api_key: Anthropic API key, or None to use default credentials.
+
+    Returns:
+        Sorted list of model ID strings.
+
+    Raises:
+        ImportError: If anthropic is not installed (part of mcp-coder[langchain]).
+    """  # Also raises LLMAuthError / LLMConnectionError via helpers.
+    try:
+        import anthropic  # pylint: disable=import-outside-toplevel
+    except ImportError as exc:
+        raise ImportError(
+            f"anthropic is required to list Anthropic models.\n{INSTALL_HINT}"
+        ) from exc
+    try:
+        client = anthropic.Anthropic(
+            api_key=api_key if api_key else None,
+            http_client=create_http_client(),
+        )
+        return sorted(m.id for m in client.models.list())
+    except ANTHROPIC_AUTH_ERRORS as exc:
+        raise_auth_error("Anthropic", "ANTHROPIC_API_KEY", exc)
+    except CONNECTION_ERRORS as exc:
+        raise_connection_error("Anthropic", "ANTHROPIC_API_KEY", exc)
+
+
+def list_ollama_models(
+    api_key: str | None,
+    base_url: str | None = None,
+) -> list[str]:
+    """Return sorted model names from the Ollama daemon's /api/tags.
+
+    Args:
+        api_key: Optional bearer token for proxy-auth setups. When set, it is
+            forwarded to ``ollama.Client`` as
+            ``headers={"Authorization": f"Bearer {api_key}"}``; when ``None``,
+            no ``headers`` kwarg is passed. Older ``ollama`` SDKs that don't
+            accept ``headers`` fall back to a host-only client.
+        base_url: Optional Ollama host (host:port or full URL); resolved via
+            :func:`_resolve_ollama_host`.
+
+    Returns:
+        Sorted list of model name strings (e.g. ``["llama3:latest", "mistral:7b"]``).
+        Empty list when the daemon returns no models.
+
+    Raises:
+        ImportError: If the ``ollama`` Python client is not installed.
+    """  # Also raises LLMConnectionError via helpers.
+    try:
+        import ollama  # pylint: disable=import-outside-toplevel,import-error
+    except ImportError as exc:
+        raise ImportError(
+            f"ollama is required to list Ollama models.\n{INSTALL_HINT}"
+        ) from exc
+    host = _resolve_ollama_host(base_url)
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+
+    client_kwargs: dict[str, Any] = {}
+    if host is not None:
+        client_kwargs["host"] = host
+    if headers is not None:
+        client_kwargs["headers"] = headers
+
+    try:
+        try:
+            client = ollama.Client(**client_kwargs)
+        except TypeError:
+            client = ollama.Client(host=host) if host else ollama.Client()
+        data: Any = client.list()
+        if isinstance(data, dict):
+            models_iter = data.get("models", [])
+        else:
+            models_iter = getattr(data, "models", [])
+        names: list[str] = []
+        for m in models_iter:
+            if isinstance(m, dict):
+                name = m.get("name") or m.get("model")
+            else:
+                name = getattr(m, "name", None) or getattr(m, "model", None)
+            if isinstance(name, str):
+                names.append(name)
+        return sorted(names)
+    except CONNECTION_ERRORS as exc:
+        raise_connection_error(
+            "Ollama",
+            "OLLAMA_API_KEY",
+            exc,
+            base_url_hint="base_url/OLLAMA_HOST if not localhost",
+        )

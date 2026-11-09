@@ -1,0 +1,268 @@
+# Copied from mcp_coder src/mcp_coder/llm/providers/langchain/_exceptions.py at commit f88e6b55 (MarcusJellinghaus/mcp_coder#1400).
+"""Custom exceptions, error tuples, and message helpers for LangChain providers.
+
+Single source of truth for error detection and user-facing error messaging.
+All subsequent provider modules import from here.
+"""
+
+import os
+from typing import NoReturn
+
+
+class LLMConnectionError(ConnectionError):
+    """Network, SSL, or transport failure connecting to an LLM provider."""
+
+
+class LLMAuthError(Exception):
+    """Authentication failure (HTTP 401/403) from an LLM provider."""
+
+
+class LLMMCPLaunchError(Exception):
+    """Local MCP subprocess launch failed (binary missing / permission)."""
+
+
+# ---------------------------------------------------------------------------
+# Try-import fallback tuples
+# ---------------------------------------------------------------------------
+
+# Connection errors — httpx transport failures + generic ConnectionError.
+# Deliberately excludes OSError so that FileNotFoundError / PermissionError
+# from local MCP subprocess launches are not reclassified as remote
+# connection failures (see LLMMCPLaunchError).
+try:
+    import httpx
+
+    CONNECTION_ERRORS: tuple[type[Exception], ...] = (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        ConnectionError,
+    )
+except ImportError:
+    CONNECTION_ERRORS = (ConnectionError,)
+
+# Auth errors per provider — SDK-native exception classes
+try:
+    import openai
+
+    OPENAI_AUTH_ERRORS: tuple[type[Exception], ...] = (openai.AuthenticationError,)
+except ImportError:
+    OPENAI_AUTH_ERRORS = ()
+
+try:
+    import anthropic
+
+    ANTHROPIC_AUTH_ERRORS: tuple[type[Exception], ...] = (
+        anthropic.AuthenticationError,
+    )
+except ImportError:
+    ANTHROPIC_AUTH_ERRORS = ()
+
+try:
+    from google.genai import errors as genai_errors
+
+    GOOGLE_CLIENT_ERRORS: tuple[type[Exception], ...] = (genai_errors.ClientError,)
+except ImportError:
+    GOOGLE_CLIENT_ERRORS = ()
+
+
+# ---------------------------------------------------------------------------
+# Message helpers
+# ---------------------------------------------------------------------------
+
+_SSL_HINT = (
+    "For SSL errors behind a corporate proxy:\n"
+    "  - Ensure your corporate root CA is installed in the OS trust store\n"
+    "    (truststore reads it automatically).\n"
+    "  - Or set SSL_CERT_FILE / REQUESTS_CA_BUNDLE to your corporate CA bundle."
+)
+
+
+def raise_connection_error(
+    provider: str,
+    env_var: str,
+    original: Exception,
+    base_url_hint: str = "",
+    dialed: str | None = None,
+) -> NoReturn:
+    """Build multi-line connection error message and raise LLMConnectionError.
+
+    Args:
+        provider: Name of the LLM provider (e.g. "OpenAI").
+        env_var: Environment variable name for the API key.
+        original: The original exception that triggered the error.
+        base_url_hint: Optional hint about the base_url.
+        dialed: The URL the client actually dialed, when known. Reported on
+            its own line rather than in the ``base_url:`` slot — it states
+            what happened, whereas *base_url_hint* says what to change, and
+            collapsing the two would drop the actionable hint.
+
+    Raises:
+        LLMConnectionError: Always raised with a formatted error message.
+    """
+    lines = [f"Connection to {provider} API failed: {original}"]
+    if dialed:
+        lines.append(f"Requests were sent to: {dialed}")
+    lines.append("Check:")
+    item = 1
+    lines.append(f"  {item}. {env_var} env var or api_key in config.toml")
+    item += 1
+    if base_url_hint:
+        lines.append(f"  {item}. base_url: {base_url_hint}")
+        item += 1
+    lines.append(f"  {item}. Network/firewall/proxy settings")
+    if classify_connection_error(original).startswith("ssl-error"):
+        lines.append(_SSL_HINT)
+    raise LLMConnectionError("\n".join(lines)) from original
+
+
+def raise_auth_error(
+    provider: str,
+    env_var: str,
+    original: Exception,
+) -> NoReturn:
+    """Build multi-line auth error message and raise LLMAuthError.
+
+    Args:
+        provider: Name of the LLM provider (e.g. "OpenAI").
+        env_var: Environment variable name for the API key.
+        original: The original exception that triggered the error.
+
+    Raises:
+        LLMAuthError: Always raised with a formatted error message.
+    """
+    lines = [
+        f"Authentication to {provider} API failed: {original}",
+        "Check:",
+        f"  1. {env_var} env var is set and valid",
+        "  2. api_key in config.toml is correct",
+    ]
+    raise LLMAuthError("\n".join(lines)) from original
+
+
+def is_google_auth_error(exc: Exception) -> bool:
+    """Check if a google.genai ClientError is an auth error (code 401 or 403).
+
+    Args:
+        exc: The exception to check.
+
+    Returns:
+        True if the exception is a Google client error with code 401 or 403.
+    """
+    if not GOOGLE_CLIENT_ERRORS:
+        return False
+    if not isinstance(exc, GOOGLE_CLIENT_ERRORS):
+        return False
+    return getattr(exc, "code", None) in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Error classification & diagnostics
+# ---------------------------------------------------------------------------
+
+_MAX_CHAIN_DEPTH = 5
+
+
+def _is_connection_reset(exc: Exception) -> bool:
+    """Check if *exc* or any chained cause is a connection-reset error.
+
+    Walks the exception chain iteratively (max depth 5) to avoid
+    unbounded recursion on pathological chains.
+
+    Args:
+        exc: The exception to inspect.
+
+    Returns:
+        ``True`` if a connection-reset indicator is found.
+    """
+    current: BaseException | None = exc
+    for _ in range(_MAX_CHAIN_DEPTH):
+        if current is None:
+            break
+        # WinError 10054 / errno 104 (ECONNRESET)
+        if isinstance(current, OSError) and getattr(current, "errno", None) in (
+            10054,
+            104,
+        ):
+            return True
+        if isinstance(current, OSError) and getattr(current, "winerror", None) == 10054:
+            return True
+        # Check string representation for connection reset messages
+        msg = str(current).lower()
+        if "connection reset" in msg or "10054" in msg or "econnreset" in msg:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def classify_connection_error(exc: Exception) -> str:
+    """Map an exception to a human-readable connection-error category.
+
+    Args:
+        exc: The connection-related exception to classify.
+
+    Returns:
+        A short human-readable category string.
+    """
+    if _is_connection_reset(exc):
+        return "connection-reset (possible proxy/firewall interference)"
+
+    if isinstance(exc, OSError):
+        err = getattr(exc, "errno", None)
+        if err in (111, 10061):  # ECONNREFUSED / WinError
+            return "connection-refused"
+        if err in (110, 10060):  # ETIMEDOUT / WinError
+            return "connection-timeout"
+
+    exc_name = type(exc).__name__.lower()
+    if "timeout" in exc_name:
+        return "connection-timeout"
+    if "ssl" in exc_name or "certificate" in str(exc).lower():
+        return "ssl-error (check certificates or truststore)"
+
+    return f"connection-error ({type(exc).__name__})"
+
+
+def _proxy_configured() -> bool:
+    """Return ``True`` if any HTTP(S) proxy env var is set."""
+    return bool(
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("http_proxy")
+    )
+
+
+def _truststore_available() -> bool:
+    """Return ``True`` if the *truststore* package can be imported."""
+    try:
+        import truststore  # pylint: disable=import-outside-toplevel
+
+        del truststore
+        return True
+    except ImportError:
+        return False
+
+
+def format_diagnostics(exc: Exception) -> str:
+    """Build a diagnostic block for a connection failure.
+
+    Includes the error classification, proxy status, and truststore
+    availability to help users self-diagnose corporate proxy / SSL issues.
+
+    Args:
+        exc: The connection-related exception.
+
+    Returns:
+        A multi-line diagnostic string.
+    """
+    category = classify_connection_error(exc)
+    proxy = _proxy_configured()
+    truststore_active = _truststore_available()
+    lines = [
+        f"Error category : {category}",
+        f"Proxy configured: {proxy}",
+        f"Truststore active: {truststore_active}",
+    ]
+    if not proxy:
+        lines.append("Hint: If behind a corporate proxy, set HTTPS_PROXY / HTTP_PROXY.")
+    return "\n".join(lines)

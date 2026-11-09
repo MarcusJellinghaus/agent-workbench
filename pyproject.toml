@@ -19,7 +19,10 @@ classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
 ]
-dependencies = []
+dependencies = [
+    "truststore>=0.9.0",   # OS certificate store (adapters.ssl_setup)
+    "mcp-coder-utils>=0.1.6",   # token_fingerprint arrived after 0.1.5
+]
 
 [project.optional-dependencies]
 # Lean set for the CI `mypy` job (`pip install .[typecheck]`): mypy plus what
@@ -35,8 +38,42 @@ coverage = [
     "coverage",
     "diff-cover",
 ]
+
+# LangChain shared runtime (langchain-core, HTTP)
+langchain-base = [
+    "langchain-core>=1.4.7",
+    "httpx>=0.27.0",
+]
+
+# LangChain integration — alternative LLM providers (OpenAI, Gemini, Anthropic, …)
+# Per-provider extras — each pulls the shared base + its wrapper SDK
+langchain-openai = [
+    "agent-workbench[langchain-base]",
+    "langchain-openai>=0.2.0",
+]
+langchain-gemini = [
+    "agent-workbench[langchain-base]",
+    "langchain-google-genai>=2.0.0",
+]
+langchain-anthropic = [
+    "agent-workbench[langchain-base]",
+    "langchain-anthropic>=0.3.0",
+]
+langchain-ollama = [
+    "agent-workbench[langchain-base]",
+    "langchain-ollama>=0.2.0",
+]
+
+# Meta — all provider extras
+langchain = [
+    "agent-workbench[langchain-openai]",
+    "agent-workbench[langchain-gemini]",
+    "agent-workbench[langchain-anthropic]",
+    "agent-workbench[langchain-ollama]",
+]
+
 dev = [
-    "agent-workbench[typecheck,coverage]",
+    "agent-workbench[typecheck,coverage,langchain]",
     "mcp-coder",           # file-size check, workflows
     "mcp-workspace",       # MCP file tools for Claude Code
     "mcp-tools-py",        # MCP pylint/mypy/pytest/vulture/... tools; ships pylint
@@ -44,7 +81,7 @@ dev = [
     "ruff~=0.17.2",        # pinned for stable rule/format output
     "tach>=0.35.0",
     "deptry>=0.25.1",
-    "import-linter>=2.0",
+    "import-linter>=2.15",
     "vulture>=2.14",
     "pytest-asyncio",      # asyncio_mode = "auto"; Chainlit/LangGraph code is async
     "pytest-xdist",        # addopts uses `-n auto`
@@ -89,15 +126,66 @@ strict = true
 warn_unreachable = true
 mypy_path = "src"
 explicit_package_bases = true
+disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = ["pytest.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["truststore"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["langchain_core", "langchain_core.*"]
+ignore_missing_imports = true
+follow_imports = "skip"  # modules are optional, skip to avoid errors when not installed
+
+[[tool.mypy.overrides]]
+module = ["langchain_openai"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langchain_google_genai"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langchain_anthropic"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langchain_ollama"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["ollama", "ollama.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["anthropic", "anthropic.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["google", "google.genai", "google.genai.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["openai", "openai.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["httpx", "httpx.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["tests.*"]
 # Unreachable false positives with assertions; mocked attributes in tests
 disable_error_code = ["unreachable", "union-attr"]
+ignore_missing_imports = true
 
 [tool.pylint.messages_control]
 disable = [
@@ -172,6 +260,14 @@ known_first_party = ["agent_workbench"]
 # the `agent-workbench[typecheck,coverage]` self-reference in `dev`, so name all three.
 optional_dependencies_dev_groups = ["dev", "typecheck", "coverage"]
 
+[tool.deptry.per_rule_ignores]
+# DEP003: optional provider SDKs, imported behind try/except ImportError and
+# supplied by the langchain-* extras. Each is a hard requirement of the
+# langchain-* wrapper that gates it, so it cannot be absent when reached.
+DEP003 = [
+    "openai", "anthropic", "google", "ollama", "pydantic",
+]
+
 [tool.mcp-tools-py]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)
 formatter = "ruff"
@@ -194,11 +290,14 @@ post_install_checks = [
 
 [tool.mcp-coder.install-from-github]
 # GitHub HEAD versions, installed in the same uv call as the project so they win
-# over PyPI (CI and tools/reinstall_local.*). Empty: PyPI releases are used.
+# over PyPI (CI and tools/reinstall_local.*).
+# Installed WITH deps (leaves — picks up new external deps)
 packages = [
-    # "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
-    # "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
-    # "mcp-tools-py @ git+https://github.com/MarcusJellinghaus/mcp-tools-py.git",
+    "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
+    "mcp-tools-py @ git+https://github.com/MarcusJellinghaus/mcp-tools-py.git",
+    "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git",
 ]
+# Installed WITHOUT deps (depends on all siblings — avoid downgrading)
 packages-no-deps = [
+    "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
 ]
