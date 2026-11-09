@@ -1,119 +1,77 @@
-# Step 6 – `verify` checks and exit code in `services/verify.py`
+# Step 6 – Public LLM functions in `adapters/llm.py`
 
 ## LLM prompt
 Read `pr_info/steps/summary.md` (especially "Rules for every step") and this file. Implement Step 6
-only, test first: the `verify` checks as a structured report (no printing), callable without argparse.
-Follow the LLM part of mcp_coder's `cli/commands/verify.py`, `verify_exit_code.py` and
-`utils/user_config.verify_config` at `f88e6b55`. Make all checks pass and produce exactly one commit.
+only, test first: the public chat-model, error-mapping and invoke functions that `prompt`, `verify` and
+#15 use. Make all checks pass and produce exactly one commit.
 
 ## WHERE
-- New `src/agent_workbench/services/verify.py`
-- New `tests/services/test_verify.py`
+- New `src/agent_workbench/adapters/llm.py`
+- New `tests/adapters/test_llm.py`
 
 ## WHAT
 ```python
-TEST_PROMPT = "Reply with OK"
-TEST_PROMPT_TIMEOUT = 30
+def create_chat_model(config: LLMConfig, timeout: int) -> Any:
+    """Return a configured BaseChatModel (Any to mypy: langchain_core is skipped)."""
 
-@dataclass
-class VerifyReport:
-    config_path: Path
-    config_entries: list[dict[str, str]]   # {"label", "status": "ok"|"warning"|"error"|"info", "value"}
-    config_has_error: bool
-    backend: str | None                    # LLM PROVIDER section
-    provider: dict[str, Any]               # check_provider() rows incl. "effective_config" and "overall_ok"
-    test_prompt_error: str | None          # None = responded OK; else the category text
-    install_hints: list[str]
-    exit_code: int
+def map_provider_error(exc: Exception, config: LLMConfig, chat_model: Any) -> NoReturn:
+    """Raise the mapped error for an exception from a chat-model call (as mcp_coder's _ask_text).
 
-def verify_config(config_file: ConfigFile) -> tuple[list[dict[str, str]], bool]: ...
-def collect_install_hints(rows: dict[str, Any]) -> list[str]: ...
-def compute_exit_code(config_has_error: bool, overall_ok: bool, test_prompt_ok: bool) -> int: ...
-def run_verify(check_models: bool = False) -> VerifyReport: ...
+    Raises:
+        LLMAuthError / LLMConnectionError: provider auth / connection failures.
+        ValueError: a 404 / model-not-found, with the 404 hint as message.
+        Exception: *exc* itself when nothing matches.
+    """
+
+def invoke(chat_model: Any, config: LLMConfig, text: str) -> str:
+    """Send one prompt and return the answer text; errors go through map_provider_error."""
 ```
 
 ## HOW
-- Module level imports: stdlib, `agent_workbench.adapters.config` (module), `agent_workbench.adapters.llm`
-  (module), `agent_workbench.adapters.config_hints.unknown_key_hint`, `agent_workbench.core.config.LLM_KEYS`.
-  None of these imports `adapters.langchain` at module level.
-- Inside `run_verify`: `from agent_workbench.adapters.langchain import _provider_checks` and
-  `from agent_workbench.adapters.langchain._exceptions import classify_connection_error, format_diagnostics`;
-  call `_provider_checks.check_provider(...)` through the module so tests can patch
-  `agent_workbench.adapters.langchain._provider_checks._check_package_installed`.
-- Chat model and call via `llm.create_chat_model` / `llm.invoke` (patchable at
-  `agent_workbench.adapters.llm.*`).
-- `logger = logging.getLogger(__name__)`; failure details at DEBUG (`exc_info=True`), as mcp_coder.
+- Module level imports only `typing` and `agent_workbench.core.config.LLMConfig` – **no**
+  `adapters.langchain` import at module level (keeps `--version` light).
+- Inside the functions:
+  `from .langchain._setup import _create_chat_model, _handle_provider_error`,
+  `from .langchain._config_diagnostics import dialed_url`,
+  `from .langchain._errors_404 import _format_404_hint, _is_404_error`.
+  Names are looked up in their defining module at call time, so tests patch e.g.
+  `agent_workbench.adapters.langchain._setup._create_chat_model`.
+- `invoke` passes the plain string to `chat_model.invoke(text)` (BaseChatModel turns a str into one
+  human message), so this module needs no `langchain_core` import.
+- Callers (services, interfaces, #15) import the module and call `llm.<function>`; tests patch
+  `agent_workbench.adapters.llm.<function>` when they want to replace a whole function.
 
 ## ALGORITHM
 ```
-verify_config(cf):                                   # mirrors mcp_coder verify_config for the [llm] section
-    missing  -> [Config file|warning|not found], [Expected path|info|<path>],
-                [Hint|info|See the Configuration section of the README to create it]; has_error False
-    parse_error -> [Config file|error|invalid TOML], [Parse error|error|<parse_error>]; return (entries, True)
-    ok       -> [Config file|ok|<path>]
-    per key in LLM_KEYS (label "[llm]"): env var set -> ok "<key> configured (env var)", or
-        "<key> configured (env var, also in config.toml)" when the key is in the file too (as mcp_coder);
-        wrong type -> error "<key>: expected str, got <type> ('<value>')"; in file -> ok "<key> configured (config.toml)";
-        else info "<key> not configured"   (no [llm] table and no env var at all -> single info "not configured")
-    unknown keys -> warning "unknown key: <key>" + (" — " + hint) from unknown_key_hint("llm", key, LLM_KEYS)
+create_chat_model(config, timeout): return _create_chat_model(config.as_dict(), timeout=timeout)
 
-run_verify(check_models):
-    cf = adapters.config.read_config_file(); entries, has_err = verify_config(cf)
-    config = adapters.config.load_llm_config(cf)
-    rows = _provider_checks.check_provider(config.as_dict(), check_models=check_models)
-    try: llm.invoke(llm.create_chat_model(config, TEST_PROMPT_TIMEOUT), config, TEST_PROMPT); error = None
-    except Exception as exc: error = classify_connection_error(exc) if isinstance(exc, (OSError, ConnectionError))
-                                     else f"{type(exc).__name__}: {exc}"   (+ debug log of format_diagnostics)
-    hints = collect_install_hints(rows); exit = compute_exit_code(has_err, bool(rows["overall_ok"]), error is None)
+map_provider_error(exc, config, chat_model):
+    _handle_provider_error(exc, config.backend, dialed_url(chat_model))   # raises LLMAuthError / LLMConnectionError
+    if _is_404_error(exc): raise ValueError(_format_404_hint(config.as_dict())) from exc
+    raise exc
+
+invoke(chat_model, config, text):
+    try: msg = chat_model.invoke(text)
+    except Exception as exc: map_provider_error(exc, config, chat_model)
+    return msg.content if isinstance(msg.content, str) else str(msg.content)
 ```
-`collect_install_hints`: `install_hint` of every dict entry whose `ok` is falsy (as mcp_coder's
-`_collect_install_hints`). `compute_exit_code`: `1` if config error, `not overall_ok` or failed test prompt,
-else `0`. `available_models` / `model_check` are never consulted – they stay outside `overall_ok`
-(`check_provider` already keeps them out), so `--check-models` cannot change the exit code.
 
 ## DATA
-`VerifyReport` as above. For a missing provider package (only `langchain_openai` reported missing)
-`install_hints == ["pip install langchain-openai"]` (raw package, as mcp_coder). A runtime `ImportError`
-from a backend ends in `test_prompt_error` and names `agent-workbench[langchain]` (from `_product.INSTALL_HINT`).
+`str` answer; exceptions as listed. The config passed to the copies is always `config.as_dict()` (a real
+`dict` with exactly the five keys – `_format_404_hint` needs a `dict`).
 
-## Tests (write first, `tests/services/test_verify.py`)
-Fixtures:
-- autouse: `monkeypatch.delenv` the `AGENT_WORKBENCH_LLM_*` and vendor key vars (`OPENAI_API_KEY`, …,
-  `OPENAI_BASE_URL`, `OLLAMA_HOST`), patch `agent_workbench.adapters.config.config_file_path` to a
-  `tmp_path` file;
-- `fake_chat_model` (used by every test below except the runtime-import-error one): patch
-  `agent_workbench.adapters.langchain._setup._create_chat_model` to return a `MagicMock`. Patch it there,
-  not `agent_workbench.adapters.llm.create_chat_model`: `check_provider` → `_config_diagnostics.resolve_target`
-  calls `_setup._create_chat_model` directly for `openai` / `ollama`, and `llm.create_chat_model` looks the
-  name up at call time, so this one patch covers both paths. No test here imports the real `langchain_openai`,
-  `langchain_ollama` or `langchain_core` backends (rule in summary.md "Rules for every step").
-
-Passing config (`backend = "openai"`, `model = "gpt-4o-mini"`, `api_key = "sk-test"` in the `tmp_path`
-config file): `validate()` returns no contract findings, so `overall_ok` depends only on the package rows.
-The happy-path, package-missing, check-models and unreachable tests use it.
-- CONFIG rows – one test each, asserting `config_entries` / `config_has_error`: file ok, env-var source,
-  env var and file both set (`"<key> configured (env var, also in config.toml)"`), empty env var, missing
-  file (warning + expected path + README hint), invalid TOML (error + Parse error row), wrong type (error),
-  unknown key (warning with "did you mean" hint, e.g. `modle`);
-- happy path: passing config, fake model answering, `_check_package_installed` patched to `True` →
-  `test_prompt_error is None`, `overall_ok` True, `exit_code` 0;
-- package missing: passing config, `_provider_checks._check_package_installed` patched with a
-  `side_effect` keyed on the package name that returns `False` only for `"langchain_openai"` →
-  `install_hints == ["pip install langchain-openai"]`, `exit_code` 1;
-- unreachable provider: passing config, `_check_package_installed` → `True`, fake model `invoke` raises
-  `ConnectionError` → `test_prompt_error` set, `exit_code` 1;
-- runtime import error, through the real backend: no `fake_chat_model`; passing config;
-  `monkeypatch.setitem(sys.modules, "langchain_openai", None)` (the import in `openai_backend` then raises
-  `ImportError`) and `monkeypatch.delitem(sys.modules, "agent_workbench.adapters.langchain.openai_backend",
-  raising=False)` so the module is re-imported → `test_prompt_error` contains `_product.INSTALL_HINT`
-  (`agent-workbench[langchain]`), `exit_code` 1;
-- `check_models=True` with passing config, `_check_package_installed` → `True`, failing listing
-  (`_provider_checks._list_models_for_backend` patched to `{"ok": False, "value": [], "error": "x"}`) →
-  `exit_code` 0;
-- ollama without tool calling (`_models.check_ollama_tool_capability` / `_models._check_ollama_daemon`
-  patched in `agent_workbench.adapters.langchain._models`) → `overall_ok` False → `exit_code` 1;
-- config error alone → `exit_code` 1; `compute_exit_code` truth table.
+## Tests (write first, `tests/adapters/test_llm.py`)
+Use a `MagicMock` chat model (`base_url`-style attributes unset is fine for `dialed_url`). No
+`langchain_core` needed:
+- `create_chat_model` forwards `config.as_dict()` and `timeout` to `_setup._create_chat_model` (patched);
+- `create_chat_model` with `LLMConfig()` raises `ValueError` (real contract check, unset backend);
+- `invoke` returns `content` (str) and `str(content)` for non-str content;
+- `ConnectionError` from `chat_model.invoke` → `LLMConnectionError`;
+- `Exception("404 model not found")` → `ValueError` whose message comes from `_format_404_hint`
+  (patch `agent_workbench.adapters.langchain._errors_404._get_model_suggestions` to return `""` – it would
+  list models over the network);
+- `RuntimeError("boom")` → re-raised unchanged (`is` the original).
 
 ## Checks
-pylint, pytest (`-n auto -m "not integration"`), mypy, ruff, lint-imports, tach. One commit:
-`Add verify checks for config and LLM provider`.
+pylint, pytest (`-n auto -m "not integration"`), mypy, ruff, lint-imports. One commit:
+`Add public chat-model, error-mapping and invoke functions`.

@@ -94,13 +94,15 @@ tests/interfaces/test_prompt_integration.py       new (marker `integration`)
 ## Steps
 
 1. Flat copies `llm_types`, `config_hints`, `ssl_setup`, `toml_utils` + their copied tests.
-2. Copied LangChain model layer + copied tests + packaging + import-linter contracts.
-3. Config: `core.config.LLMConfig` + `adapters.config` reader / loader.
-4. Public LLM functions `adapters.llm`.
-5. Logging setup `services.logging_setup`.
-6. `services.verify` checks and exit code.
-7. CLI: `verify` / `prompt` subcommands, formatter, placeholder removal, integration test.
-8. Docs (README, architecture.md, CLAUDE.md pytest note) and final checks.
+2. Copied LangChain model layer (15 source modules) + packaging, mypy, deptry, import-linter, vulture.
+3. Copied model-layer tests, part 1: trimmed conftest, backends, http, exceptions, messages.
+4. Copied model-layer tests, part 2: contract, diagnostics, models, models_ollama, provider_checks, resolve_target.
+5. Config: `core.config.LLMConfig` + `adapters.config` reader / loader.
+6. Public LLM functions `adapters.llm`.
+7. Logging setup `services.logging_setup`.
+8. `services.verify` checks and exit code.
+9. CLI: `verify` / `prompt` subcommands, formatter, placeholder removal, integration test.
+10. Docs (README, architecture.md, CLAUDE.md pytest note) and final checks.
 
 ## Rules for every step
 - Checks after the change: `run_pylint_check`, `run_pytest_check(extra_args=["-n", "auto", "-m", "not integration"])`,

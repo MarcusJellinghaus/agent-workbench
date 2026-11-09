@@ -1,11 +1,11 @@
-# Step 2 – Copy the LangChain model layer and its tests
+# Step 2 – Copy the LangChain model layer (source modules only)
 
 ## LLM prompt
 Read `pr_info/steps/summary.md` (especially "Rules for every step") and this file. Implement Step 2
 only: copy the 15 model-layer modules of mcp_coder (commit `f88e6b55`) into
-`src/agent_workbench/adapters/langchain/`, copy their 13 test files and a trimmed conftest, add the
-packaging and import-linter contracts, make all checks pass, and produce exactly one commit.
-This is a mechanical copy: do not refactor the copies.
+`src/agent_workbench/adapters/langchain/`, add the packaging, mypy, deptry, import-linter and vulture
+entries they need, make all checks pass, and produce exactly one commit. The copied tests follow in
+Steps 3 and 4. This is a mechanical copy: do not refactor the copies.
 
 ## Precondition
 If `git show f88e6b55:<path>` fails for a listed file, write one line to `pr_info/.blocked.txt` naming the
@@ -20,11 +20,6 @@ New `src/agent_workbench/adapters/langchain/__init__.py`: docstring only (no imp
 `"""LangChain model layer copied from mcp_coder (see each module's header)."""`.
 Not copied: package `__init__` of mcp_coder, `_config_source`, `verification`, `agent`, `_mcp_tools`,
 `mcp_manager`, `approval_bridge`, `permission_bridge`.
-
-Tests `tests/llm/providers/langchain/test_langchain_{anthropic,contract,diagnostics,exceptions,gemini,http,
-messages,models,models_ollama,ollama,openai,provider_checks,resolve_target}.py` →
-`tests/adapters/langchain/`, plus `tests/adapters/langchain/__init__.py` (empty) and a trimmed
-`tests/adapters/langchain/conftest.py`.
 
 Modified: `pyproject.toml`, `.importlinter`, `vulture_whitelist.py`, `.large-files-allowlist` (only if needed).
 
@@ -44,29 +39,6 @@ Source copies – only these changes:
   ```
   Docstrings / comments keep mentioning mcp-coder.
 - import-order re-sort by `run_format_code`.
-
-Test copies – only these changes:
-- module paths in any form (imports, `patch(...)` targets incl. f-string-built ones, `caplog` logger
-  names, `_LOGGER_NAME`, module-name constants): `mcp_coder.llm.providers.langchain` →
-  `agent_workbench.adapters.langchain`, `mcp_coder.llm.types` → `agent_workbench.adapters.llm_types`,
-  `mcp_coder.utils.config_hints` → `agent_workbench.adapters.config_hints`,
-  `mcp_coder.utils.log_utils` → `mcp_coder_utils.redaction`;
-- imports of names the mcp_coder package `__init__` re-exports (`_create_chat_model`,
-  `_handle_provider_error`) point to `agent_workbench.adapters.langchain._setup`;
-- every patch target names the module where agent-workbench looks the name up (a patch on the package
-  attribute `agent_workbench.adapters.langchain.<name>` would pass silently – retarget it to the module
-  that does the lookup);
-- `TestImportCycle` checks `_config_diagnostics.dialed_url` instead of the package attribute;
-- literals rendering a `_product` value (e.g. `[llm.langchain]` → `[llm]`, `mcp-coder[langchain]` →
-  `agent-workbench[langchain]` in expected messages);
-- import-order re-sort.
-If a copied test still cannot pass within these changes, mark it
-`@pytest.mark.skip(reason="<why>")` and add a line `- <test id>: <reason>` to
-`pr_info/pr_notes.md` under a heading `Skipped copied tests` (for the PR description).
-
-`conftest.py`: keep the module docstring, `_is_installed` and the session-scoped autouse
-`_mock_langchain_modules` unchanged; drop `_tmp_home`, `skip_langchain_history_guard`, `graph_events`,
-`async_events` and imports only they used.
 
 ## HOW
 `pyproject.toml`:
@@ -147,24 +119,24 @@ ignore_imports =
 for `langchain_core`, `langchain_openai`, `langchain_google_genai`, `langchain_anthropic`,
 `langchain_ollama`, `openai`, `anthropic`, `google`, `ollama`, `httpx`, `mcp_coder_utils`
 (`truststore` exists already). `mcp_coder_utils` gets its `agent_workbench.services.** -> mcp_coder_utils`
-line in Step 5, when the first services import exists.
+line in Step 7, when the first services import exists.
 If a contract or an `ignore_imports` line fails because its module is not in the import graph (e.g.
 `langgraph`), drop that entry, leave a comment `# dropped: <module> not in the import graph yet` and add
 a line to `pr_info/pr_notes.md` under a heading `Dropped import-linter entries`.
 
-`vulture_whitelist.py`: port mcp_coder's entries for the copied modules and tests
-(e.g. `_._mock_langchain_modules`, `_._clear_env` if a copied test defines it), then whitelist every
-further name `run_vulture_check` reports in the copies, each with a comment naming the file.
+`vulture_whitelist.py`: port mcp_coder's entries for the copied source modules, then whitelist every
+further name `run_vulture_check` reports in them (names used only by the tests of Steps 3–4 included),
+each with a comment naming the file.
 
 `.large-files-allowlist`: run `check_file_size(max_lines=750)`; add any copied file over the limit
 (copies stay unchanged).
 
 ## ALGORITHM
 ```
-for each module / test in the lists:
+for each module in the list:
     text = git show f88e6b55:<path>
     save_file(dest, header + text with only the allowed rewrites)
-write trimmed conftest; update pyproject, .importlinter, vulture whitelist
+update pyproject, .importlinter, vulture whitelist
 run_format_code; run checks; fix only within the allowed changes
 diff each copy against its git show output
 ```

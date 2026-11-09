@@ -1,77 +1,44 @@
-# Step 4 – Public LLM functions in `adapters/llm.py`
+# Step 4 – Copy the model-layer tests, part 2: contract, diagnostics, models, provider checks, resolve_target
 
 ## LLM prompt
-Read `pr_info/steps/summary.md` (especially "Rules for every step") and this file. Implement Step 4
-only, test first: the public chat-model, error-mapping and invoke functions that `prompt`, `verify` and
-#15 use. Make all checks pass and produce exactly one commit.
+Read `pr_info/steps/summary.md` (especially "Rules for every step"), `pr_info/steps/step_3.md` (the
+allowed test changes) and this file. Implement Step 4 only: copy the second half of mcp_coder's
+model-layer tests (commit `f88e6b55`) into `tests/adapters/langchain/`, make all checks pass, and produce
+exactly one commit. This is a mechanical copy: do not refactor the copies.
+
+## Precondition
+If `git show f88e6b55:<path>` fails for a listed file, write one line to `pr_info/.blocked.txt` naming the
+file and stop.
 
 ## WHERE
-- New `src/agent_workbench/adapters/llm.py`
-- New `tests/adapters/test_llm.py`
+`tests/llm/providers/langchain/test_langchain_{contract,diagnostics,models,models_ollama,provider_checks,resolve_target}.py`
+→ `tests/adapters/langchain/` (the conftest exists from Step 3).
+
+Modified: `vulture_whitelist.py` (only if needed), `.large-files-allowlist` (only if needed).
 
 ## WHAT
-```python
-def create_chat_model(config: LLMConfig, timeout: int) -> Any:
-    """Return a configured BaseChatModel (Any to mypy: langchain_core is skipped)."""
-
-def map_provider_error(exc: Exception, config: LLMConfig, chat_model: Any) -> NoReturn:
-    """Raise the mapped error for an exception from a chat-model call (as mcp_coder's _ask_text).
-
-    Raises:
-        LLMAuthError / LLMConnectionError: provider auth / connection failures.
-        ValueError: a 404 / model-not-found, with the 404 hint as message.
-        Exception: *exc* itself when nothing matches.
-    """
-
-def invoke(chat_model: Any, config: LLMConfig, text: str) -> str:
-    """Send one prompt and return the answer text; errors go through map_provider_error."""
-```
+Test copies – the same allowed changes as in Step 3 ("WHAT", test copies), plus:
+- `TestImportCycle` checks `_config_diagnostics.dialed_url` instead of the package attribute.
+If a copied test still cannot pass within these changes, mark it `@pytest.mark.skip(reason="<why>")` and
+add a line to `pr_info/pr_notes.md` under `Skipped copied tests`, as in Step 3.
 
 ## HOW
-- Module level imports only `typing` and `agent_workbench.core.config.LLMConfig` – **no**
-  `adapters.langchain` import at module level (keeps `--version` light).
-- Inside the functions:
-  `from .langchain._setup import _create_chat_model, _handle_provider_error`,
-  `from .langchain._config_diagnostics import dialed_url`,
-  `from .langchain._errors_404 import _format_404_hint, _is_404_error`.
-  Names are looked up in their defining module at call time, so tests patch e.g.
-  `agent_workbench.adapters.langchain._setup._create_chat_model`.
-- `invoke` passes the plain string to `chat_model.invoke(text)` (BaseChatModel turns a str into one
-  human message), so this module needs no `langchain_core` import.
-- Callers (services, interfaces, #15) import the module and call `llm.<function>`; tests patch
-  `agent_workbench.adapters.llm.<function>` when they want to replace a whole function.
+`vulture_whitelist.py`: port mcp_coder's entries for these tests, then whitelist every further name
+`run_vulture_check` reports in them, each with a comment naming the file.
+`.large-files-allowlist`: run `check_file_size(max_lines=750)`; add any copied test over the limit.
 
 ## ALGORITHM
 ```
-create_chat_model(config, timeout): return _create_chat_model(config.as_dict(), timeout=timeout)
-
-map_provider_error(exc, config, chat_model):
-    _handle_provider_error(exc, config.backend, dialed_url(chat_model))   # raises LLMAuthError / LLMConnectionError
-    if _is_404_error(exc): raise ValueError(_format_404_hint(config.as_dict())) from exc
-    raise exc
-
-invoke(chat_model, config, text):
-    try: msg = chat_model.invoke(text)
-    except Exception as exc: map_provider_error(exc, config, chat_model)
-    return msg.content if isinstance(msg.content, str) else str(msg.content)
+for each test file in the list:
+    text = git show f88e6b55:<path>
+    save_file(dest, header + text with only the allowed rewrites)
+run_format_code; run checks; fix only within the allowed changes
+diff each copy against its git show output
 ```
 
 ## DATA
-`str` answer; exceptions as listed. The config passed to the copies is always `config.as_dict()` (a real
-`dict` with exactly the five keys – `_format_404_hint` needs a `dict`).
-
-## Tests (write first, `tests/adapters/test_llm.py`)
-Use a `MagicMock` chat model (`base_url`-style attributes unset is fine for `dialed_url`). No
-`langchain_core` needed:
-- `create_chat_model` forwards `config.as_dict()` and `timeout` to `_setup._create_chat_model` (patched);
-- `create_chat_model` with `LLMConfig()` raises `ValueError` (real contract check, unset backend);
-- `invoke` returns `content` (str) and `str(content)` for non-str content;
-- `ConnectionError` from `chat_model.invoke` → `LLMConnectionError`;
-- `Exception("404 model not found")` → `ValueError` whose message comes from `_format_404_hint`
-  (patch `agent_workbench.adapters.langchain._errors_404._get_model_suggestions` to return `""` – it would
-  list models over the network);
-- `RuntimeError("boom")` → re-raised unchanged (`is` the original).
+None new.
 
 ## Checks
-pylint, pytest (`-n auto -m "not integration"`), mypy, ruff, lint-imports. One commit:
-`Add public chat-model, error-mapping and invoke functions`.
+pylint, pytest (`-n auto -m "not integration"`), mypy, ruff, lint-imports, vulture, check_file_size.
+One commit: `Copy model-layer tests from mcp_coder (contract, diagnostics, models, provider checks)`.
