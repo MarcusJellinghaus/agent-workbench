@@ -47,9 +47,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 6: Public LLM functions in `adapters/llm.py` — [step_6.md](./steps/step_6.md)
-- [ ] Implementation: tests first, then `create_chat_model`, `map_provider_error`, `invoke`
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests first, then `create_chat_model`, `map_provider_error`, `invoke`
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports) — fix all issues
+- [x] Commit message prepared
 
 ### Step 7: Logging setup in `services/logging_setup.py` — [step_7.md](./steps/step_7.md)
 - [ ] Implementation: tests first, then `setup_logging` / `LOG_LEVELS`, `.importlinter` services entry
