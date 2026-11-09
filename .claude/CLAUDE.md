@@ -2,6 +2,8 @@
 
 `agent-workbench` is a governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
+**Follow mcp_coder.** Where possible and sensible, do it the way mcp_coder does (structure, naming, config, extras, verify, patterns) – decide that without asking for confirmation.
+
 ## MCP Tools — mandatory
 
 **Do NOT use native Claude Code file tools** (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`) for any operation that has an MCP equivalent. Always use the `mcp__mcp-workspace__*` tools instead. This applies to all file reading, writing, editing, searching, listing, and git operations. If no MCP equivalent exists, use Bash. Check the tool mapping table below first.
