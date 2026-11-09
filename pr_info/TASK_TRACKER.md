@@ -22,9 +22,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 ### Step 1: Flat copies `llm_types`, `config_hints`, `ssl_setup`, `toml_utils` — [step_1.md](./steps/step_1.md)
-- [ ] Implementation: copy the four modules and their tests, update `pyproject.toml`, `.importlinter`, `vulture_whitelist.py`
-- [ ] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, deptry) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: copy the four modules and their tests, update `pyproject.toml`, `.importlinter`, `vulture_whitelist.py`
+- [x] Quality checks: pylint, pytest, mypy (plus ruff, lint-imports, vulture, deptry) — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Copy the LangChain model layer (15 source modules) — [step_2.md](./steps/step_2.md)
 - [ ] Implementation: copy the modules, add packaging/extras, mypy, deptry, import-linter, vulture and large-file entries

@@ -19,7 +19,9 @@ classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
 ]
-dependencies = []
+dependencies = [
+    "truststore>=0.9.0",   # OS certificate store (adapters.ssl_setup)
+]
 
 [project.optional-dependencies]
 # Lean set for the CI `mypy` job (`pip install .[typecheck]`): mypy plus what
@@ -89,15 +91,21 @@ strict = true
 warn_unreachable = true
 mypy_path = "src"
 explicit_package_bases = true
+disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = ["pytest.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["truststore"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["tests.*"]
 # Unreachable false positives with assertions; mocked attributes in tests
 disable_error_code = ["unreachable", "union-attr"]
+ignore_missing_imports = true
 
 [tool.pylint.messages_control]
 disable = [

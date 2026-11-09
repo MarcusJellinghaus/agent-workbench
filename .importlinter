@@ -46,3 +46,15 @@ source_modules =
     agent_workbench
 forbidden_modules =
     tests
+
+# truststore: process-wide injection (adapters.ssl_setup) and the per-client SSL context of the
+# copied model layer. Allowed in adapters only.
+[importlinter:contract:truststore_isolation]
+name = truststore only in adapters
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    truststore
+ignore_imports =
+    agent_workbench.adapters.** -> truststore
