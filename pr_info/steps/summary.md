@@ -31,7 +31,9 @@ KISS choices (agreed in the plan review):
 - One private delete sequence `_delete_everywhere` is used by both `delete_thread` and
   `finish_turn` (the one public method `on_message` calls).
 - The startup check's message already names the missing package; only `_UI_DEPENDENCIES` grows.
-- Each dependency, floor and import-linter contract lands in the step that first imports it.
+- All new dependencies are declared in `pyproject.toml` before step 1 (so one install
+  provides them, with temporary deptry `DEP002` ignores); each step raises its floors to the
+  installed versions, drops its `DEP002` entries and adds its import-linter contract.
 
 ## Files
 

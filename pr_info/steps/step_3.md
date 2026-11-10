@@ -50,11 +50,10 @@ Step 4 adds the checkpointer provider and delete; keep the constructor easy to e
   `await super().create_step(step)`. The caller's dict is untouched.
 - `get_all_user_threads`: call super; for each thread decode `tags`, `metadata`; for each
   step decode `tags`, `metadata`, `generation`.
-- `pyproject.toml` core deps next to `chainlit` (`aiosqlite` came in step 1):
-  `sqlalchemy[asyncio]>=<installed>`, `aiohttp>=<installed, at least 3.14.4>`
-  (GHSA-2g87-pp6c-29x5).
-  `[tool.deptry.per_rule_ignores] DEP002 = ["aiohttp"]` with a comment: imported only by
-  Chainlit's `sql_alchemy` module, which Chainlit does not install it for.
+- `pyproject.toml`: `sqlalchemy[asyncio]` and `aiohttp` are already declared in core deps.
+  Raise both floors to the installed versions (`aiohttp` at least 3.14.4,
+  GHSA-2g87-pp6c-29x5). Drop `sqlalchemy` from `[tool.deptry.per_rule_ignores] DEP002`;
+  `aiohttp` stays there (imported only by Chainlit's `sql_alchemy` module).
 - `.importlinter`: `sqlalchemy` `forbidden` contract allowed in `agent_workbench.apps.**`
   (aiosqlite's contract came in step 1).
 - `_UI_DEPENDENCIES` gains `"greenlet"`, `"aiohttp"` (after the existing entries).

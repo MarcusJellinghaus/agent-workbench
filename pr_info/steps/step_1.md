@@ -18,7 +18,7 @@ TDD: tests first, then code, then all checks. One commit.
 ## WHERE
 - `src/agent_workbench/apps/agent.py`
 - `src/agent_workbench/apps/ui_launcher.py` (`_UI_DEPENDENCIES`)
-- `pyproject.toml` (`[langchain-base]`)
+- `pyproject.toml` (floors, deptry `DEP002`)
 - `tests/apps/test_agent_checkpointer.py` (new), `tests/apps/test_agent_graph.py`,
   `tests/apps/test_ui_launcher.py`
 
@@ -50,10 +50,12 @@ class Runtime:
   `aiosqlite` `forbidden` contract in `.importlinter` (allowed in `agent_workbench.apps.**`),
   same shape as `langgraph_isolation`.
 - `get_runtime` docstring / comments: remove the "#16 swaps the saver" notes.
-- `pyproject.toml`: `"langgraph-checkpoint-sqlite>=<installed, at least 3.1.2>"` next to
-  `langgraph` in `[langchain-base]`, comment naming the three GHSA ids from the issue;
-  `"aiosqlite>=<installed>"` in core `dependencies` next to `chainlit` (imported directly
-  from this step on, so deptry needs it declared).
+- `pyproject.toml`: `langgraph-checkpoint-sqlite` (`[langchain-base]`) and `aiosqlite`
+  (core) are already declared. Raise both floors to the installed versions (checkpoint-sqlite
+  at least 3.1.2); comment naming the three GHSA ids from the issue on the
+  checkpoint-sqlite line. Drop `aiosqlite` and `langgraph-checkpoint-sqlite` from
+  `[tool.deptry.per_rule_ignores] DEP002` (src imports both from this step on) – keep an
+  entry only if deptry still reports it.
 - `_UI_DEPENDENCIES = ("langgraph", "langgraph.checkpoint.sqlite", "langchain_core")`.
 
 ## ALGORITHM
