@@ -258,6 +258,19 @@ def test_failing_finish_turn_keeps_stop(
     )
 
 
+def test_failing_data_layer_factory_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        patch.object(
+            ui_handlers, "get_data_layer", side_effect=RuntimeError("no layer")
+        ),
+        caplog.at_level(logging.ERROR, logger=ui_handlers.__name__),
+    ):
+        asyncio.run(ui_handlers._finish_turn(THREAD_ID))
+    assert "no layer" in caplog.text
+
+
 @pytest.mark.parametrize("stop", [False, True], ids=["answer", "stop"])
 async def test_turn_on_a_deleted_thread_leaves_no_checkpoints(
     stop: bool,

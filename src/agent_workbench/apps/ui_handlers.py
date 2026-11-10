@@ -121,11 +121,11 @@ async def _finish_turn(thread_id: str) -> None:
     Logs, never raises: runs in ``on_message``'s ``finally`` and must not replace a
     ``CancelledError`` from Stop or the turn's own error.
     """
-    # From chainlit.data, not cl: the handler tests replace this module's cl.
-    layer = get_data_layer()
-    if not isinstance(layer, SessionDataLayer):
-        return
     try:
+        # From chainlit.data, not cl: the handler tests replace this module's cl.
+        layer = get_data_layer()
+        if not isinstance(layer, SessionDataLayer):
+            return
         await layer.finish_turn(thread_id)
     except Exception:  # pylint: disable=broad-exception-caught
         logger.exception("Deleting the turn of deleted thread %s failed", thread_id)

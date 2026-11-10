@@ -1,5 +1,6 @@
 """Chainlit environment cleanup and ``config.toml`` writer of the UI launcher."""
 
+import importlib
 import logging
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from agent_workbench.apps.ui_launcher import (
     write_chainlit_config,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the value the launcher must refuse
 
 
@@ -88,6 +90,18 @@ def test_auth_secret_created_then_reused(tmp_path: Path) -> None:
         assert os.environ["CHAINLIT_AUTH_SECRET"] == secret
 
 
+@pytest.mark.parametrize("content", ["", " \n"], ids=["empty", "whitespace"])
+def test_blank_auth_secret_file_regenerated(tmp_path: Path, content: str) -> None:
+    path = tmp_path / AUTH_SECRET_FILE
+    path.write_text(content, encoding="utf-8")
+    with patch.dict(os.environ):
+        os.environ.pop("CHAINLIT_AUTH_SECRET", None)
+        prepare_chainlit_env(tmp_path)
+        secret = path.read_text(encoding="utf-8")
+        assert secret.strip()
+        assert os.environ["CHAINLIT_AUTH_SECRET"] == secret
+
+
 def test_foreign_auth_secret_replaced_with_warning(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -149,3 +163,9 @@ def test_written_config_loaded_by_chainlit() -> None:
     assert settings["features"].mcp.enabled is False
     assert settings["features"].allow_thread_sharing is False
     assert settings["ui"].name == "agent-workbench"
+
+
+def test_repo_root_untouched_by_chainlit_import() -> None:
+    importlib.import_module("chainlit.config")
+    assert not (REPO_ROOT / ".chainlit").exists()
+    assert not (REPO_ROOT / ".files").exists()

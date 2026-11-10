@@ -87,10 +87,15 @@ def chainlit_port() -> int:
 
 
 def _auth_secret(app_data: Path) -> str:
-    """Return the secret in ``<app_data>/AUTH_SECRET_FILE``, creating it if missing."""
+    """Return the secret in ``<app_data>/AUTH_SECRET_FILE``, creating it if missing.
+
+    An empty file (e.g. from an interrupted first run) counts as missing.
+    """
     path = app_data / AUTH_SECRET_FILE
     if path.exists():
-        return path.read_text(encoding="utf-8").strip()
+        stored = path.read_text(encoding="utf-8").strip()
+        if stored:
+            return stored
     secret = secrets.token_urlsafe(48)
     path.write_text(secret, encoding="utf-8")
     return secret
