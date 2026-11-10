@@ -47,9 +47,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 6: Handlers — data layer, header auth, resume, shutdown, end-of-turn re-delete — [step_6.md](./steps/step_6.md)
-- [ ] Implementation: tests in `test_ui_handlers.py` (incl. end-to-end delete during a turn); `data_layer`, `header_auth`, `on_chat_resume`, `on_app_shutdown`, `_checkpointer`, `_finish_turn`, `on_message` `try/finally`; `vulture_whitelist.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests in `test_ui_handlers.py` (incl. end-to-end delete during a turn); `data_layer`, `header_auth`, `on_chat_resume`, `on_app_shutdown`, `_checkpointer`, `_finish_turn`, `on_message` `try/finally`; `vulture_whitelist.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 7: Docs — README, security design, architecture — [step_7.md](./steps/step_7.md)
 - [ ] Implementation: `README.md`, `docs/security/security_design.md`, `docs/architecture/architecture.md`; `check_file_size` passes
