@@ -2,9 +2,10 @@
 
 Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
-Status: LLM core (config, `verify`, `prompt`) and a chat UI (`agent-workbench-ui`, no tools
-yet). See [docs/architecture/architecture.md](docs/architecture/architecture.md) for the
-design and roadmap.
+Status: LLM core (config, `verify`, `prompt`) and a chat UI (`agent-workbench-ui`, with
+saved sessions, no tools yet). See
+[docs/architecture/architecture.md](docs/architecture/architecture.md) for the design and
+roadmap.
 
 ## Setup on Windows
 
@@ -93,18 +94,32 @@ agent-workbench-ui
 agent-workbench-ui --log-level DEBUG
 ```
 
-- Start: checks that `langgraph` and `langchain_core` are installed (else:
-  `pip install "agent-workbench[langchain]"`), then runs the full `verify` including the test
-  prompt. On failure it prints the verify report and exits with code 1.
+- Start: checks that `langgraph`, `langgraph.checkpoint.sqlite`, `langchain_core`, `greenlet`
+  and `aiohttp` are installed (else: `pip install "agent-workbench[langchain]"`), then runs
+  the full `verify` including the test prompt. On failure it prints the verify report and
+  exits with code 1.
 - Serves on `http://127.0.0.1:8000` only and opens the browser. `CHAINLIT_PORT` changes the
   port; `CHAINLIT_HOST` is always forced to `127.0.0.1`.
 - Chainlit's files (`.chainlit/config.toml`, rewritten on every start, and `.files/`) live in
   `%USERPROFILE%\.agent_workbench\chainlit`. No `.env` file is read. Chainlit env vars for
   features the app does not configure (database, Literal AI, Slack / Discord / Teams, custom
-  auth, root path, SSL) are ignored with a warning.
+  auth, auth cookie, root path, SSL) are ignored with a warning.
 - Limits per turn: 50 agent steps, 300 s without a stream event, 3600 s overall. Token usage
   is shown after each answer; the Stop button cancels the turn.
 - `--log-level` – as for `agent-workbench`.
+
+### Sessions
+
+- Conversations are listed in the sidebar and can be resumed and deleted. They are kept
+  until you delete them.
+- Stored in `%USERPROFILE%\.agent_workbench\sessions\`: `checkpoints.sqlite` (agent state)
+  and `chainlit.sqlite` (what the page shows), each with SQLite's `-wal` / `-shm` side
+  files. Delete these files only while the app is stopped.
+- Sign-in is automatic as the OS user (the login page may flash briefly).
+- The sidebar lists at most 1000 conversations; older ones are not listed and cannot be
+  deleted in the UI.
+- After a resume, the session token total restarts at 0.
+- The thumbs up / down buttons are visible, but feedback is not supported.
 
 ## Quality checks
 

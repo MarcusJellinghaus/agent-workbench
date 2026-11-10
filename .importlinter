@@ -144,6 +144,28 @@ forbidden_modules =
 ignore_imports =
     agent_workbench.apps.** -> langgraph
 
+# aiosqlite: the connection of the session checkpointer. Allowed in apps only.
+[importlinter:contract:aiosqlite_isolation]
+name = aiosqlite only in apps
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    aiosqlite
+ignore_imports =
+    agent_workbench.apps.** -> aiosqlite
+
+# sqlalchemy: the engine of the Chainlit data layer. Allowed in apps only.
+[importlinter:contract:sqlalchemy_isolation]
+name = sqlalchemy only in apps
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    sqlalchemy
+ignore_imports =
+    agent_workbench.apps.** -> sqlalchemy
+
 # langchain_core: the model layer (adapters) and the agent's messages (apps).
 [importlinter:contract:langchain_core_isolation]
 name = langchain_core only in adapters and apps

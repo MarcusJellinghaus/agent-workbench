@@ -110,7 +110,7 @@ Package: `src/agent_workbench/`. Dependencies flow downward only; enforced by
 
 | Layer | Package | Responsibility (planned) | Status |
 |---|---|---|---|
-| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | LangGraph agent (no tools), Chainlit chat page, `agent-workbench-ui` |
+| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | LangGraph agent (no tools), Chainlit chat page, `agent-workbench-ui`, sessions (save, list, resume, delete) |
 | interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify, prompt |
 | services | `agent_workbench.services` | Permission check and confirmation, tool-call logging, toolset building and reload | verify checks, logging setup |
 | adapters | `agent_workbench.adapters` | Copied LLM model layer, tool-spec → LangChain tool adapter, lazy loading of tool packages | copied LLM model layer, config loader, chat-model functions |
@@ -133,14 +133,15 @@ adds a dependency also adds its import-linter `forbidden` contract
 | adapters | `langchain-core`, LangChain provider packages (optional), `httpx`, `truststore`, mcp-tools-sql and mcp-workspace (optional, lazy), `mcp-coder-utils` |
 | services | `mcp-coder-utils` (redaction, logging) |
 | interfaces | none beyond the standard library |
-| apps | `langgraph`, `langchain-core`, `chainlit` |
+| apps | `langgraph`, `langchain-core`, `chainlit`, `sqlalchemy`, `aiosqlite` |
 
-Core dependencies: `chainlit`, `truststore`, `mcp-coder-utils`; the session-store packages
-(SQLite checkpointer, Chainlit data layer) follow in #16. `langchain-core`, `langgraph` and
-`httpx` are in `[langchain-base]`, as in mcp_coder. Everything else is an extra: LLM
-providers named as in mcp_coder (`[langchain-openai]`, `[langchain-anthropic]`,
-`[langchain-gemini]`, `[langchain-ollama]`, meta extra `[langchain]` for all four) and
-tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
+Core dependencies: `chainlit`, `truststore`, `mcp-coder-utils`, and for Chainlit's data
+layer `sqlalchemy[asyncio]`, `aiosqlite` and `aiohttp` (`aiohttp` is imported only by
+Chainlit, so it has no contract). `langchain-core`, `langgraph`, the SQLite checkpointer
+(`langgraph-checkpoint-sqlite`) and `httpx` are in `[langchain-base]`, as in mcp_coder.
+Everything else is an extra: LLM providers named as in mcp_coder (`[langchain-openai]`,
+`[langchain-anthropic]`, `[langchain-gemini]`, `[langchain-ollama]`, meta extra
+`[langchain]` for all four) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
 
 ### Placeholder code
 
@@ -170,11 +171,16 @@ the workspace folder), sets their permission mode and presses Reload; each query
 mcp-workspace confines paths to the configured project folder. Delete, move and
 Git / GitHub tools are `deny` by default.
 
-### Logging and retention (planned)
+### Logging and retention
 
-One structured line per tool call: user, tool, parameters, result size, duration; no
-results; secrets redacted. Sessions keep full conversations until the user deletes them.
-Logs and the session database live in the user app-data folder.
+Tool-call log (planned): one structured line per tool call: user, tool, parameters, result
+size, duration; no results; secrets redacted; in the user app-data folder.
+
+Sessions: full conversations are kept until the user deletes them. Two SQLite files in
+`<app-data>/sessions/` (WAL mode): `checkpoints.sqlite` (LangGraph `AsyncSqliteSaver`, the
+model's state) and `chainlit.sqlite` (Chainlit data layer, what the page shows). A delete
+removes the thread from both, with `secure_delete` and a WAL checkpoint; details in the
+security design, §5.
 
 ### Limits
 

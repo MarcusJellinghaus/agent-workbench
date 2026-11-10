@@ -8,8 +8,57 @@ worker before the test modules of this folder are imported.
 """
 
 import tempfile
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
+
+import pytest
 
 from agent_workbench.apps.ui_launcher import prepare_chainlit_env
 
+if TYPE_CHECKING:
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    from agent_workbench.apps.ui_data_layer import SessionDataLayer
+
 prepare_chainlit_env(Path(tempfile.mkdtemp(prefix="aw-chainlit-")))
+
+
+@pytest.fixture(autouse=True)
+def _chainlit_data_layer() -> Iterator[None]:
+    """No data layer unless a test installs one; Chainlit's globals restored after."""
+    import chainlit.data
+
+    saved = chainlit.data._data_layer, chainlit.data._data_layer_initialized
+    chainlit.data._data_layer = None
+    chainlit.data._data_layer_initialized = True
+    yield
+    chainlit.data._data_layer, chainlit.data._data_layer_initialized = saved
+
+
+@pytest.fixture
+async def checkpointer(tmp_path: Path) -> AsyncIterator["AsyncSqliteSaver"]:
+    """A real SQLite checkpointer on ``tmp_path``; its connection closed after."""
+    from agent_workbench.apps import agent
+
+    saver = await agent.open_checkpointer(tmp_path / "checkpoints.sqlite")
+    yield saver
+    await saver.conn.close()
+
+
+@pytest.fixture
+async def data_layer(
+    tmp_path: Path, checkpointer: "AsyncSqliteSaver"
+) -> AsyncIterator["SessionDataLayer"]:
+    """A ``SessionDataLayer`` on ``tmp_path``, installed as Chainlit's data layer."""
+    import chainlit.data
+
+    from agent_workbench.apps.ui_data_layer import SessionDataLayer
+
+    layer = SessionDataLayer(
+        tmp_path / "chainlit.sqlite", AsyncMock(return_value=checkpointer)
+    )
+    chainlit.data._data_layer = layer
+    yield layer
+    await layer.close()

@@ -10,6 +10,7 @@ import pytest
 
 from agent_workbench.apps import ui_launcher
 from agent_workbench.apps.ui_launcher import (
+    AUTH_SECRET_FILE,
     CHAINLIT_HOST,
     DEFAULT_PORT,
     chainlit_port,
@@ -58,6 +59,7 @@ def test_unset_removed_env_vars_do_not_warn(
     with patch.dict(os.environ):
         for var in removed:
             os.environ.pop(var, None)
+        os.environ.pop("CHAINLIT_AUTH_SECRET", None)
         with caplog.at_level(logging.WARNING, logger=ui_launcher.__name__):
             prepare_chainlit_env(tmp_path)
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -71,6 +73,63 @@ def test_foreign_host_forced_to_loopback(
             prepare_chainlit_env(tmp_path)
         assert os.environ["CHAINLIT_HOST"] == CHAINLIT_HOST == "127.0.0.1"
     assert any(ALL_INTERFACES in record.getMessage() for record in caplog.records)
+
+
+def test_auth_secret_created_then_reused(tmp_path: Path) -> None:
+    with patch.dict(os.environ):
+        os.environ.pop("CHAINLIT_AUTH_SECRET", None)
+        prepare_chainlit_env(tmp_path)
+        path = tmp_path / AUTH_SECRET_FILE
+        secret = path.read_text(encoding="utf-8")
+        assert secret
+        assert os.environ["CHAINLIT_AUTH_SECRET"] == secret
+
+        os.environ.pop("CHAINLIT_AUTH_SECRET")
+        prepare_chainlit_env(tmp_path)
+        assert path.read_text(encoding="utf-8") == secret
+        assert os.environ["CHAINLIT_AUTH_SECRET"] == secret
+
+
+@pytest.mark.parametrize("content", ["", " \n"], ids=["empty", "whitespace"])
+def test_blank_auth_secret_file_regenerated(tmp_path: Path, content: str) -> None:
+    path = tmp_path / AUTH_SECRET_FILE
+    path.write_text(content, encoding="utf-8")
+    with patch.dict(os.environ):
+        os.environ.pop("CHAINLIT_AUTH_SECRET", None)
+        prepare_chainlit_env(tmp_path)
+        secret = path.read_text(encoding="utf-8")
+        assert secret.strip()
+        assert os.environ["CHAINLIT_AUTH_SECRET"] == secret
+
+
+def test_foreign_auth_secret_replaced_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stored = "stored-secret-value"
+    foreign = "foreign-secret-value"
+    (tmp_path / AUTH_SECRET_FILE).write_text(stored, encoding="utf-8")
+    with patch.dict(os.environ, {"CHAINLIT_AUTH_SECRET": foreign}):
+        with caplog.at_level(logging.WARNING, logger=ui_launcher.__name__):
+            prepare_chainlit_env(tmp_path)
+        assert os.environ["CHAINLIT_AUTH_SECRET"] == stored
+    messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("CHAINLIT_AUTH_SECRET" in message for message in messages)
+    assert not any(stored in m or foreign in m for m in messages)
+
+
+def test_matching_auth_secret_logs_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stored = "stored-secret-value"
+    (tmp_path / AUTH_SECRET_FILE).write_text(stored, encoding="utf-8")
+    removed = ui_launcher._REMOVED_ENV_VARS  # pylint: disable=protected-access
+    with patch.dict(os.environ, {"CHAINLIT_AUTH_SECRET": stored}):
+        for var in (*removed, "CHAINLIT_HOST"):
+            os.environ.pop(var, None)
+        with caplog.at_level(logging.DEBUG, logger=ui_launcher.__name__):
+            prepare_chainlit_env(tmp_path)
+        assert os.environ["CHAINLIT_AUTH_SECRET"] == stored
+    assert not caplog.records
 
 
 def test_chainlit_port_default() -> None:
@@ -102,6 +161,7 @@ def test_written_config_loaded_by_chainlit() -> None:
     assert settings["features"].spontaneous_file_upload.enabled is False
     assert settings["features"].edit_message is False
     assert settings["features"].mcp.enabled is False
+    assert settings["features"].allow_thread_sharing is False
     assert settings["ui"].name == "agent-workbench"
 
 

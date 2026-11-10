@@ -65,11 +65,14 @@ def test_passed_verify_starts_chainlit(
     assert (root / ".chainlit" / "config.toml").is_file()
 
 
+@pytest.mark.parametrize(
+    "missing", ["langgraph", "langgraph.checkpoint.sqlite", "greenlet", "aiohttp"]
+)
 def test_missing_dependency_exits_before_verify(
-    isolated: MagicMock, capsys: pytest.CaptureFixture[str]
+    isolated: MagicMock, capsys: pytest.CaptureFixture[str], missing: str
 ) -> None:
     def find_spec(name: str) -> ModuleSpec | None:
-        return None if name == "langgraph" else _real_find_spec(name)
+        return None if name == missing else _real_find_spec(name)
 
     with (
         patch.object(ui_launcher, "find_spec", side_effect=find_spec),
@@ -77,7 +80,7 @@ def test_missing_dependency_exits_before_verify(
     ):
         assert ui_launcher.main([]) == 1
     err = capsys.readouterr().err
-    assert "langgraph" in err
+    assert f"'{missing}'" in err
     assert "agent-workbench[langchain]" in err
     run_verify.assert_not_called()
     isolated.assert_not_called()
