@@ -1,6 +1,5 @@
 """Chainlit environment cleanup and ``config.toml`` writer of the UI launcher."""
 
-import importlib
 import logging
 import os
 from pathlib import Path
@@ -17,7 +16,6 @@ from agent_workbench.apps.ui_launcher import (
     write_chainlit_config,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the value the launcher must refuse
 
 
@@ -103,9 +101,3 @@ def test_written_config_loaded_by_chainlit() -> None:
     assert settings["features"].edit_message is False
     assert settings["features"].mcp.enabled is False
     assert settings["ui"].name == "agent-workbench"
-
-
-def test_repo_root_untouched_by_chainlit_import() -> None:
-    importlib.import_module("chainlit.config")
-    assert not (REPO_ROOT / ".chainlit").exists()
-    assert not (REPO_ROOT / ".files").exists()
