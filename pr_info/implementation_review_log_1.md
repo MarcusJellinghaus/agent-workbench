@@ -1,0 +1,15 @@
+# review-implementation review log 1
+
+## Round 1 — 2026-11-10
+**Findings**:
+Reviewing the branch diff for #16; now checking the rest of Chainlit's `get_all_user_threads` and the tests.Checking the commit that dropped the #15 guard test, then the docs and config changes.`tests/apps/test_ui_env.py:151` — medium — The branch deletes `test_repo_root_untouched_by_chainlit_import`, the #15 guard that Chainlit's import writes no `.chainlit/` or `.files/` into the repo root (commit 246a75f). It was dropped because a leftover folder from `get_library_source` made it fail, which is an environment problem, not a code change. #16 does not ask for this, and gitignoring both folders now hides any regression. Restore the test and remove the leftover folder instead.
+
+`src/agent_workbench/apps/ui_launcher.py:92` — medium — `_auth_secret` returns an empty or whitespace-only `chainlit_auth_secret` file as `""`. The write at line 95 is not atomic, so an interrupted first run can leave such a file. `prepare_chainlit_env` then sets `CHAINLIT_AUTH_SECRET=""`, Chainlit's JWT secret check fails at every start, and nothing regenerates the secret. Treat an empty stored value as missing, and add a test for it.
+
+`src/agent_workbench/apps/ui_handlers.py:125` — low — `get_data_layer()` in `_finish_turn` runs outside the `try`. If the data-layer factory raises, that exception in `on_message`'s `finally` replaces Stop's `CancelledError` or the turn's own error. The docstring says the function logs and never raises.
+
+`.gitignore:204` — low — The `.vscode/` ignore rule is unrelated to #16; revert it.
+**Decisions**:
+Verdict(decision='tasks', tasks=['Restore `test_repo_root_untouched_by_chainlit_import` in tests/apps/test_ui_env.py (the #15 guard deleted in commit 246a75f), checking that importing Chainlit writes no `.chainlit/` or `.files/` into the repo root. Delete the leftover `.chainlit/` and `.files/` folders from the working tree so the test passes. Do not change the code to make it pass.', 'In src/agent_workbench/apps/ui_launcher.py `_auth_secret` (around line 92), treat a stored `chainlit_auth_secret` that is empty or whitespace-only as missing, so a new secret is generated and written. Add a test where an empty file and a whitespace-only file each lead to a regenerated, non-empty secret.', "In src/agent_workbench/apps/ui_handlers.py `_finish_turn` (around line 125), move the `get_data_layer()` call inside the existing `try` so an error from the factory is logged and not raised. This keeps the docstring's 'logs and never raises' promise and stops it replacing Stop's `CancelledError` in `on_message`'s `finally`. Add a test where `get_data_layer` raises and `_finish_turn` does not raise."], escalate_reason=None)
+**Changes**:
+applied
