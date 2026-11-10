@@ -50,7 +50,7 @@ mode per tool decides what the model may call; every tool call is logged.
 
 ## 2. Architecture Constraints
 
-- Python 3.11+.
+- Python 3.11–3.13 (Chainlit requires < 3.14).
 - Milestones 1–2 run locally on a Windows dev machine, single user, as the developer.
   Database access uses the developer's Windows identity, whose rights may exceed
   read-only – the tool configuration, not the login, is the boundary.
@@ -110,7 +110,7 @@ Package: `src/agent_workbench/`. Dependencies flow downward only; enforced by
 
 | Layer | Package | Responsibility (planned) | Status |
 |---|---|---|---|
-| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | empty |
+| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | LangGraph agent (no tools), Chainlit chat page, `agent-workbench-ui` |
 | interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify, prompt |
 | services | `agent_workbench.services` | Permission check and confirmation, tool-call logging, toolset building and reload | verify checks, logging setup |
 | adapters | `agent_workbench.adapters` | Copied LLM model layer, tool-spec → LangChain tool adapter, lazy loading of tool packages | copied LLM model layer, config loader, chat-model functions |
@@ -135,11 +135,12 @@ adds a dependency also adds its import-linter `forbidden` contract
 | interfaces | none beyond the standard library |
 | apps | `langgraph`, `langchain-core`, `chainlit` |
 
-Core dependencies: `pydantic`, `chainlit`, `langgraph`, `langchain-core`, `httpx`,
-`truststore`, `mcp-coder-utils`, plus the session-store packages (SQLite checkpointer,
-Chainlit data layer). Everything else is an extra: LLM providers named as in mcp_coder
-(`[langchain-openai]`, `[langchain-anthropic]`, `[langchain-gemini]`, `[langchain-ollama]`,
-meta extra `[langchain]` for all four) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
+Core dependencies: `chainlit`, `truststore`, `mcp-coder-utils`; the session-store packages
+(SQLite checkpointer, Chainlit data layer) follow in #16. `langchain-core`, `langgraph` and
+`httpx` are in `[langchain-base]`, as in mcp_coder. Everything else is an extra: LLM
+providers named as in mcp_coder (`[langchain-openai]`, `[langchain-anthropic]`,
+`[langchain-gemini]`, `[langchain-ollama]`, meta extra `[langchain]` for all four) and
+tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
 
 ### Placeholder code
 
@@ -175,10 +176,15 @@ One structured line per tool call: user, tool, parameters, result size, duration
 results; secrets redacted. Sessions keep full conversations until the user deletes them.
 Logs and the session database live in the user app-data folder.
 
-### Limits (planned)
+### Limits
 
-As in mcp_coder: at most 50 agent steps per turn (LangGraph `recursion_limit`), an
-inactivity timeout per model call, token usage per turn and per session shown in the UI.
+As in mcp_coder:
+
+- At most 50 agent steps per turn (LangGraph `recursion_limit`); a `GraphRecursionError`
+  is shown as a message.
+- 300 s inactivity per turn (no stream event) and 3600 s overall per turn.
+- Chat model HTTP timeout 300 s.
+- Token usage per turn and per session shown in the UI. No budgets.
 
 ---
 

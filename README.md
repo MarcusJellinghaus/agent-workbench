@@ -2,12 +2,13 @@
 
 Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
-Status: LLM core (config, `verify`, `prompt`). See
-[docs/architecture/architecture.md](docs/architecture/architecture.md) for the design and roadmap.
+Status: LLM core (config, `verify`, `prompt`) and a chat UI (`agent-workbench-ui`, no tools
+yet). See [docs/architecture/architecture.md](docs/architecture/architecture.md) for the
+design and roadmap.
 
 ## Setup on Windows
 
-Requires Python 3.11+.
+Requires Python 3.11–3.13 (Chainlit does not support 3.14 yet).
 
 ```bat
 python -m venv .venv
@@ -82,6 +83,28 @@ agent-workbench prompt --timeout 120 "..."
 
 - `--timeout` – request timeout in seconds (default 60).
 - On any error: prints a message and exits with code 1.
+
+## `agent-workbench-ui`
+
+Opens a local chat page with the configured LLM (LangGraph agent, no tools yet).
+
+```bat
+agent-workbench-ui
+agent-workbench-ui --log-level DEBUG
+```
+
+- Start: checks that `langgraph` and `langchain_core` are installed (else:
+  `pip install "agent-workbench[langchain]"`), then runs the full `verify` including the test
+  prompt. On failure it prints the verify report and exits with code 1.
+- Serves on `http://127.0.0.1:8000` only and opens the browser. `CHAINLIT_PORT` changes the
+  port; `CHAINLIT_HOST` is always forced to `127.0.0.1`.
+- Chainlit's files (`.chainlit/config.toml`, rewritten on every start, and `.files/`) live in
+  `%USERPROFILE%\.agent_workbench\chainlit`. No `.env` file is read. Chainlit env vars for
+  features the app does not configure (database, Literal AI, Slack / Discord / Teams, custom
+  auth, root path, SSL) are ignored with a warning.
+- Limits per turn: 50 agent steps, 300 s without a stream event, 3600 s overall. Token usage
+  is shown after each answer; the Stop button cancels the turn.
+- `--log-level` – as for `agent-workbench`.
 
 ## Quality checks
 

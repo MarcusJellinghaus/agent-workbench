@@ -21,6 +21,8 @@ _.add
 _.has_error
 # tests/adapters/test_ssl_setup.py: autouse fixture
 _._reset_injected
+# tests/adapters/test_llm_stream_usage.py: autouse fixture
+_._openai_env
 
 # adapters/langchain/_config_diagnostics.py: Finding TypedDict field, read by consumers via dict access
 _.ok
@@ -29,23 +31,29 @@ _.verified
 # adapters/langchain/_errors_404.py: 404 helpers, used by adapters.llm (#14 step 6) and the copied tests
 _._is_404_error
 _._format_404_hint
-# adapters/langchain/_exceptions.py: kept from mcp_coder; raised by the agent layer (#15)
+# adapters/langchain/_exceptions.py: kept from mcp_coder; raised only by mcp_coder's MCP agent layer
 _.LLMMCPLaunchError
 # adapters/langchain/_exceptions.py: connection diagnostics, used by services.verify and the copied tests
 _.format_diagnostics
-# adapters/langchain/_messages.py: message helpers, used by the agent layer (#15) and the copied tests
+# adapters/langchain/_messages.py: message helpers, used by the copied tests
 _.assemble_messages
 _.serialize_messages
-# adapters/langchain/_preflight.py: Ollama agent-mode pre-flight, used by the agent layer (#15)
+# adapters/langchain/_preflight.py: Ollama agent-mode pre-flight, kept from mcp_coder;
+# the startup `verify` covers Ollama tool calling
 _._ollama_preflight
 # adapters/langchain/_provider_checks.py: provider checks, used by services.verify and the copied tests
 _.check_provider
 # adapters/langchain/_setup.py: system-message builder and error mapping, used by adapters.llm
 _._build_system_messages
 _._handle_provider_error
-# adapters/langchain/_usage.py: usage helpers, used by the agent layer (#15) and the copied tests
-_._extract_usage
-_._sum_usage
+
+# tests/langchain_doubles.py: BaseChatModel overrides of the copied fake, called by langchain_core
+_._generate
+_._agenerate
+_._llm_type
+_.kw
+_.stop
+_.run_manager
 
 # tests/adapters/langchain/conftest.py: autouse session fixture for mocking langchain modules
 _._mock_langchain_modules

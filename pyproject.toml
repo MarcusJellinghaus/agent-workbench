@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "truststore>=0.9.0",   # OS certificate store (adapters.ssl_setup)
     "mcp-coder-utils>=0.1.6",   # token_fingerprint arrived after 0.1.5
+    "chainlit>=2.12.0",   # chat UI (apps)
 ]
 
 [project.optional-dependencies]
@@ -39,9 +40,11 @@ coverage = [
     "diff-cover",
 ]
 
-# LangChain shared runtime (langchain-core, HTTP)
+# LangChain shared runtime (langchain-core, graph, HTTP)
 langchain-base = [
     "langchain-core>=1.4.7",
+    # >=1.2.9 -> langgraph-checkpoint>=4.1.0 (Reviver allowed_objects fix) — same pin as mcp_coder
+    "langgraph>=1.2.9",
     "httpx>=0.27.0",
 ]
 
@@ -90,6 +93,7 @@ dev = [
 
 [project.scripts]
 agent-workbench = "agent_workbench.interfaces.cli:main"
+agent-workbench-ui = "agent_workbench.apps.ui_launcher:main"
 
 [project.urls]
 "Homepage" = "https://github.com/MarcusJellinghaus/agent-workbench"
@@ -160,6 +164,16 @@ follow_imports = "skip"
 module = ["langchain_ollama"]
 ignore_missing_imports = true
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["langgraph", "langgraph.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["chainlit", "chainlit.*"]
+ignore_missing_imports = true
+follow_imports = "skip"  # untyped user_session / Message.send fail no-untyped-call
 
 [[tool.mypy.overrides]]
 module = ["ollama", "ollama.*"]

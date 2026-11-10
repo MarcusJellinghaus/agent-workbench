@@ -122,9 +122,31 @@ forbidden_modules =
     agent_workbench.adapters
     agent_workbench.adapters.langchain
 
-# Third-party modules of the model layer: allowed in adapters only.
+# chainlit: the chat UI. Allowed in apps only.
+[importlinter:contract:chainlit_isolation]
+name = chainlit only in apps
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    chainlit
+ignore_imports =
+    agent_workbench.apps.** -> chainlit
+
+# langgraph: the agent graph. Allowed in apps only.
+[importlinter:contract:langgraph_isolation]
+name = langgraph only in apps
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    langgraph
+ignore_imports =
+    agent_workbench.apps.** -> langgraph
+
+# langchain_core: the model layer (adapters) and the agent's messages (apps).
 [importlinter:contract:langchain_core_isolation]
-name = langchain_core only in adapters
+name = langchain_core only in adapters and apps
 type = forbidden
 source_modules =
     agent_workbench
@@ -132,7 +154,9 @@ forbidden_modules =
     langchain_core
 ignore_imports =
     agent_workbench.adapters.** -> langchain_core
+    agent_workbench.apps.** -> langchain_core
 
+# Third-party modules of the model layer: allowed in adapters only.
 [importlinter:contract:langchain_openai_isolation]
 name = langchain_openai only in adapters
 type = forbidden

@@ -1,6 +1,6 @@
 # agent-workbench Security Design
 
-**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: planned, nothing implemented yet
+**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI)
 **Maintainer**: Marcus Jellinghaus
 
 Reporting vulnerabilities: see [`SECURITY.md`](../../SECURITY.md). Architecture: [`docs/architecture/architecture.md`](../architecture/architecture.md).
@@ -34,6 +34,7 @@ The model never gets a database connection or credentials. It can only request a
 - **Trusted**: the developer (single user), agent-workbench code, the tool packages, configuration files.
 - **Untrusted input**: model output, tool arguments chosen by the model, data content returned by tools (table comments, column values, file contents).
 - **Leaves the machine**: everything in the prompt – user messages, system prompt, tool descriptions and tool results – goes to the LLM provider.
+- **Network**: the chat UI binds to `127.0.0.1` only (`CHAINLIT_HOST` is forced). An origin-check middleware rejects foreign `Origin` headers on HTTP and WebSocket requests: Chainlit's Socket.IO server has its origin check off, and `allow_origins` in its config covers CORS only.
 - **Identity**: the app runs as the developer. Database access uses Windows authentication with the developer's own rights, which may exceed read-only. The tool configuration, not the database login, is the boundary.
 
 ---
@@ -80,17 +81,19 @@ The model never gets a database connection or credentials. It can only request a
 - No database password: Windows authentication.
 - LLM API keys come from environment variables or the user config, never from the workspace folder.
 - Secrets in log lines are redacted (`mcp_coder_utils.redaction`).
+- Chainlit reads no `.env` file: its env file is pointed at a never-created file in its app root. Chainlit credential and integration env vars (database, Literal AI, Slack / Discord / Teams, custom auth, root path, SSL) are removed before Chainlit is imported.
 
 ### 4.6 Limits
 
-- At most 50 agent steps per turn (LangGraph `recursion_limit`).
-- Inactivity timeout per model call.
+- At most 50 agent steps per turn (LangGraph `recursion_limit`); a `GraphRecursionError` is shown as a message.
+- 300 s inactivity per turn (no stream event) and 3600 s overall per turn.
+- Chat model HTTP timeout 300 s.
 - Token usage per turn and per session is shown in the UI. No budgets.
 
 ### 4.7 Dependencies
 
 - Core dependencies are kept minimal; LLM providers and tool packages are optional extras, imported only when configured.
-- Chainlit itself depends on the `mcp` SDK, so it is installed; the tool path never imports it (tested). Making mcp-workspace's Git / GitHub libraries optional is planned but not required; until then they are installed (unused while those tools are `deny`).
+- Chainlit itself depends on the `mcp` SDK, so it is installed; the MCP feature is off in the generated Chainlit config, the app uses no MCP and the tool path never imports it (tested). Making mcp-workspace's Git / GitHub libraries optional is planned but not required; until then they are installed (unused while those tools are `deny`).
 - Dependabot and OpenSSF Scorecard run on the repository.
 
 ---
@@ -103,6 +106,8 @@ The model never gets a database connection or credentials. It can only request a
 | Session database | Full conversations including tool results (LangGraph checkpointer + Chainlit data layer, SQLite) | User app-data folder | Until the user deletes the session in the UI |
 
 Both stores lie outside the workspace folder, so the model cannot read them back through the workspace tools.
+
+Chainlit's app root (`.chainlit/`, `.files/`) is `chainlit/` in the user app-data folder. No database or Literal AI data layer is active (their env vars are removed); until #16, sessions live only in memory and are lost when the app stops.
 
 ---
 
