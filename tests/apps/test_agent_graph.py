@@ -1,5 +1,6 @@
 """``build_graph`` (model node -> ToolNode) and the process-wide ``get_runtime``."""
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -69,18 +70,25 @@ async def test_unknown_tool_call_routes_to_tool_node() -> None:
     assert model.invoke_count == 2
 
 
-async def test_get_runtime_builds_once(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_runtime_builds_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(agent, "_runtime", None)
     llm_config = LLMConfig(backend="openai", model="gpt-4o")
     model = _answer("hi")
     with (
+        patch("agent_workbench.adapters.config.app_data_dir", return_value=tmp_path),
         patch.object(agent, "load_llm_config", return_value=llm_config),
         patch.object(agent, "create_chat_model", return_value=model) as create,
     ):
-        first = await agent.get_runtime()
-        second = await agent.get_runtime()
+        try:
+            first = await agent.get_runtime()
+            second = await agent.get_runtime()
+        finally:
+            await agent.close_runtime()
 
     assert second is first
     assert first.chat_model is model
     assert first.llm_config is llm_config
+    assert first.checkpointer is not None
     create.assert_called_once_with(llm_config, agent.MODEL_TIMEOUT)

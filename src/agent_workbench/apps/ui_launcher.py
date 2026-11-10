@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 CHAINLIT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 
-_UI_DEPENDENCIES = ("langgraph", "langchain_core")
+_UI_DEPENDENCIES = ("langgraph", "langgraph.checkpoint.sqlite", "langchain_core")
 
 # Env vars that would switch on a Chainlit feature this app does not configure (data
 # layer, chat platforms, custom auth, root path, TLS), plus the ChainlitConfig fields

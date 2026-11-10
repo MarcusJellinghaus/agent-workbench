@@ -1,23 +1,28 @@
 """LangGraph agent: the graph, the process-wide runtime and one chat turn."""
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import aiosqlite
 from langchain_core.messages import AIMessage, HumanMessage
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError, NodeCancelledError
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from agent_workbench.adapters import llm
+from agent_workbench.adapters import config, llm
 from agent_workbench.adapters.config import load_llm_config
 from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
+
+logger = logging.getLogger(__name__)
 
 AGENT_MAX_STEPS = 50  # mcp_coder AGENT_MAX_STEPS
 MODEL_TIMEOUT = 300  # HTTP timeout of the chat model (ICODER_LLM_TIMEOUT_SECONDS)
@@ -58,6 +63,61 @@ def build_graph(chat_model: Any, tools: Sequence[Any], checkpointer: Any) -> Any
     return graph.compile(checkpointer=checkpointer)
 
 
+def sessions_dir() -> Path:
+    """Return ``<app-data>/sessions``, the folder of the session databases (created)."""
+    path = config.app_data_dir() / "sessions"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+async def open_checkpointer(path: Path) -> AsyncSqliteSaver:
+    """Open the SQLite checkpointer on *path* with ``secure_delete`` and its tables.
+
+    Must be called on the event loop that uses the saver: it captures the running loop.
+
+    Args:
+        path: The database file, created if missing.
+
+    Returns:
+        The set-up saver; close it with ``await saver.conn.close()``.
+    """
+    conn = await aiosqlite.connect(path)
+    try:
+        # Per connection: deleted rows are overwritten with zeros.
+        async with conn.execute("PRAGMA secure_delete=ON"):
+            pass
+        saver = AsyncSqliteSaver(conn)
+        # Creates the tables (else adelete_thread fails on a fresh file) and sets WAL.
+        await saver.setup()
+    except BaseException:
+        await conn.close()
+        raise
+    return saver
+
+
+async def checkpoint_wal(saver: AsyncSqliteSaver) -> None:
+    """Move the WAL into the database file and empty it; log, never raise, on failure.
+
+    Call only after ``adelete_thread`` has returned: this takes ``saver.lock``, which
+    is not reentrant.
+
+    Args:
+        saver: The checkpointer from :func:`open_checkpointer`.
+    """
+    try:
+        # Under the saver's lock: its writes run execute + commit under it, so the
+        # pragma cannot land inside one of them.
+        async with (
+            saver.lock,
+            saver.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)") as cursor,
+        ):
+            row = await cursor.fetchone()
+        if row and row[0]:
+            logger.warning("WAL checkpoint of the checkpointer database was busy")
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("WAL checkpoint of the checkpointer database failed")
+
+
 @dataclass(frozen=True)
 class Runtime:
     """The process-wide agent objects."""
@@ -65,26 +125,49 @@ class Runtime:
     graph: Any
     chat_model: Any
     llm_config: LLMConfig
+    checkpointer: Any
 
 
 _runtime: Runtime | None = None
+_runtime_lock = asyncio.Lock()
 
 
 async def get_runtime() -> Runtime:
-    """Process-wide runtime, created on first call (#16 swaps the saver here).
+    """Process-wide runtime, created on first call.
 
     Returns:
         The runtime shared by all chats.
     """
     global _runtime  # pylint: disable=global-statement
-    # No lock: nothing below awaits, so concurrent first calls cannot interleave.
-    # #16 adds an asyncio.Lock together with the async SQLite saver.
-    if _runtime is None:
-        llm_config = load_llm_config()
-        chat_model = create_chat_model(llm_config, MODEL_TIMEOUT)
-        graph = build_graph(chat_model, [], InMemorySaver())
-        _runtime = Runtime(graph=graph, chat_model=chat_model, llm_config=llm_config)
+    # Opening the checkpointer awaits: without the lock, concurrent first calls
+    # would each build a runtime.
+    async with _runtime_lock:
+        if _runtime is None:
+            llm_config = load_llm_config()
+            chat_model = create_chat_model(llm_config, MODEL_TIMEOUT)
+            saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
+            try:
+                graph = build_graph(chat_model, [], saver)
+            except BaseException:
+                await saver.conn.close()
+                raise
+            _runtime = Runtime(
+                graph=graph,
+                chat_model=chat_model,
+                llm_config=llm_config,
+                checkpointer=saver,
+            )
     return _runtime
+
+
+async def close_runtime() -> None:
+    """Close the checkpointer's connection and drop the runtime (no-op without one)."""
+    global _runtime  # pylint: disable=global-statement
+    async with _runtime_lock:
+        if _runtime is None:
+            return
+        runtime, _runtime = _runtime, None
+        await runtime.checkpointer.conn.close()
 
 
 def _last_ai_text(messages: Sequence[Any]) -> str:

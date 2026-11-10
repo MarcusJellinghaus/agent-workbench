@@ -76,3 +76,5 @@ _._fake_chat_model
 _._patch_startup
 _._chat_model
 _.pytestmark
+# tests/apps/test_agent_checkpointer.py: pytest fixture, used via usefixtures
+_._fresh_runtime

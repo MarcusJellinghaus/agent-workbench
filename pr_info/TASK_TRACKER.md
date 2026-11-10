@@ -22,9 +22,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 ### Step 1: Persistent checkpointer in `apps/agent.py` — [step_1.md](./steps/step_1.md)
-- [ ] Implementation: tests in `test_agent_checkpointer.py`, `test_agent_graph.py`, `test_ui_launcher.py`; `sessions_dir`, `open_checkpointer`, `checkpoint_wal`, locked `get_runtime`, `close_runtime`, `Runtime.checkpointer`; `_UI_DEPENDENCIES`, `pyproject.toml` floors / DEP002, `.importlinter` aiosqlite contract
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests in `test_agent_checkpointer.py`, `test_agent_graph.py`, `test_ui_launcher.py`; `sessions_dir`, `open_checkpointer`, `checkpoint_wal`, locked `get_runtime`, `close_runtime`, `Runtime.checkpointer`; `_UI_DEPENDENCIES`, `pyproject.toml` floors / DEP002, `.importlinter` aiosqlite contract
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: SQLite schema for Chainlit's data layer — [step_2.md](./steps/step_2.md)
 - [ ] Implementation: tests in `test_ui_data_layer_schema.py` (coverage, idempotence, WAL, missing column); `_DDL`, `expected_columns`, `prepare_database`, `_columns` in new `ui_data_layer.py`
