@@ -57,12 +57,17 @@ async def on_chat_resume(thread: dict[str, Any]) -> None:
     """Warn when the checkpointer has no state for the resumed *thread*.
 
     The page then shows the conversation the model no longer knows; the user can
-    still continue it.
+    still continue it. Logs, never raises: Chainlit awaits this before it sends the
+    thread to the page.
     """
-    runtime = await get_runtime()
-    state = await runtime.checkpointer.aget_tuple(
-        {"configurable": {"thread_id": thread["id"]}}
-    )
+    try:
+        runtime = await get_runtime()
+        state = await runtime.checkpointer.aget_tuple(
+            {"configurable": {"thread_id": thread["id"]}}
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Checking the checkpoint of thread %s failed", thread["id"])
+        return
     if state is None:
         logger.warning("No checkpoint for resumed thread %s", thread["id"])
 

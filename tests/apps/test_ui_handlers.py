@@ -212,6 +212,17 @@ def test_resume_warns_without_checkpoint(
     assert (THREAD_ID in caplog.text) is (state is None)
 
 
+def test_resume_logs_runtime_failure(caplog: pytest.LogCaptureFixture) -> None:
+    with (
+        patch.object(
+            ui_handlers, "get_runtime", AsyncMock(side_effect=RuntimeError("no rt"))
+        ),
+        caplog.at_level(logging.ERROR, logger=ui_handlers.__name__),
+    ):
+        asyncio.run(ui_handlers.on_chat_resume({"id": THREAD_ID}))
+    assert "no rt" in caplog.text
+
+
 def test_shutdown_closes_runtime() -> None:
     with patch.object(ui_handlers, "close_runtime", AsyncMock()) as close:
         asyncio.run(ui_handlers.on_app_shutdown())
