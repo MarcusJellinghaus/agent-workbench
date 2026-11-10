@@ -45,6 +45,9 @@ Decorators carry `# type: ignore[untyped-decorator]` as `on_message` does.
   `None` → `logger.warning` (user can still continue).
 - `on_app_shutdown`: `await close_runtime()`.
 - `_finish_turn`: `layer = get_data_layer()`; `if isinstance(layer, SessionDataLayer): await layer.finish_turn(thread_id)` – not via `cl.*` (the `fake_cl` fixture replaces `cl`).
+  Any `Exception` from `finish_turn` (e.g. an `adelete_thread` failure) is caught and
+  logged (`logger.exception`), never raised: it runs in `on_message`'s `finally` and must
+  not replace a `CancelledError` from Stop or the turn's own error.
 - `on_message`: read `thread_id = cl.context.session.thread_id` once; wrap the turn and the
   sends in `try: ... finally: await _finish_turn(thread_id)`. `CancelledError` still propagates.
 
@@ -70,6 +73,8 @@ on_message(message):
 - `on_message` with `chainlit.data._data_layer` set to `MagicMock(spec=SessionDataLayer)`
   (with `finish_turn = AsyncMock()`): `finish_turn(THREAD_ID)` awaited after a normal turn,
   after an error turn and after Stop (`CancelledError` still raised).
+- `finish_turn` raising (`AsyncMock(side_effect=RuntimeError)`) after Stop: the handler still
+  re-raises `CancelledError` and the failure is logged.
 - End-to-end (acceptance): real `SessionDataLayer` + real saver on `tmp_path`, scripted
   model graph; delete the thread, then a turn on it ends (normally and by Stop) → no
   checkpoints for it (`aget_tuple` is `None`).
