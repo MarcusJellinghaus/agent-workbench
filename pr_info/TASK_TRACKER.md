@@ -27,9 +27,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 2: SQLite schema for Chainlit's data layer — [step_2.md](./steps/step_2.md)
-- [ ] Implementation: tests in `test_ui_data_layer_schema.py` (coverage, idempotence, WAL, missing column); `_DDL`, `expected_columns`, `prepare_database`, `_columns` in new `ui_data_layer.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests in `test_ui_data_layer_schema.py` (coverage, idempotence, WAL, missing column); `_DDL`, `expected_columns`, `prepare_database`, `_columns` in new `ui_data_layer.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: `SessionDataLayer` — engine, `secure_delete`, tags and JSON fixes — [step_3.md](./steps/step_3.md)
 - [ ] Implementation: conftest fixtures and tests in `test_ui_data_layer.py`; `SessionDataLayer` (`__init__`, `update_thread`, `create_step`, `get_all_user_threads`), `_encode_tags`, `_decode_json`, `_set_secure_delete`; `pyproject.toml` floors / DEP002, `.importlinter` sqlalchemy contract, `_UI_DEPENDENCIES`, `vulture_whitelist.py`
