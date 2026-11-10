@@ -78,3 +78,5 @@ _._chat_model
 _.pytestmark
 # tests/apps/test_agent_checkpointer.py: pytest fixture, used via usefixtures
 _._fresh_runtime
+# tests/apps/conftest.py: autouse fixture resetting Chainlit's data layer
+_._chainlit_data_layer

@@ -65,7 +65,9 @@ def test_passed_verify_starts_chainlit(
     assert (root / ".chainlit" / "config.toml").is_file()
 
 
-@pytest.mark.parametrize("missing", ["langgraph", "langgraph.checkpoint.sqlite"])
+@pytest.mark.parametrize(
+    "missing", ["langgraph", "langgraph.checkpoint.sqlite", "greenlet", "aiohttp"]
+)
 def test_missing_dependency_exits_before_verify(
     isolated: MagicMock, capsys: pytest.CaptureFixture[str], missing: str
 ) -> None:

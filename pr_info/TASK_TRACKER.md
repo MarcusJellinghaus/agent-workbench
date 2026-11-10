@@ -32,9 +32,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 3: `SessionDataLayer` — engine, `secure_delete`, tags and JSON fixes — [step_3.md](./steps/step_3.md)
-- [ ] Implementation: conftest fixtures and tests in `test_ui_data_layer.py`; `SessionDataLayer` (`__init__`, `update_thread`, `create_step`, `get_all_user_threads`), `_encode_tags`, `_decode_json`, `_set_secure_delete`; `pyproject.toml` floors / DEP002, `.importlinter` sqlalchemy contract, `_UI_DEPENDENCIES`, `vulture_whitelist.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: conftest fixtures and tests in `test_ui_data_layer.py`; `SessionDataLayer` (`__init__`, `update_thread`, `create_step`, `get_all_user_threads`), `_encode_tags`, `_decode_json`, `_set_secure_delete`; `pyproject.toml` floors / DEP002, `.importlinter` sqlalchemy contract, `_UI_DEPENDENCIES`, `vulture_whitelist.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Delete — checkpointer first, deleted set, WAL checkpoints — [step_4.md](./steps/step_4.md)
 - [ ] Implementation: tests in `test_ui_data_layer_delete.py`, `data_layer` fixture with real saver; `CheckpointerProvider`, `delete_thread`, `finish_turn`, `_delete_everywhere`, `_checkpoint_wal`, early returns for deleted ids

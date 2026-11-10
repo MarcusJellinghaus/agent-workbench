@@ -24,8 +24,8 @@ dependencies = [
     "mcp-coder-utils>=0.1.6",   # token_fingerprint arrived after 0.1.5
     "chainlit>=2.12.0",   # chat UI (apps)
     "aiosqlite>=0.22.1",   # session checkpointer connection (apps)
-    "sqlalchemy[asyncio]>=2.0.0",   # Chainlit SQLAlchemyDataLayer; [asyncio] brings greenlet
-    "aiohttp>=3.14.4",   # GHSA-2g87-pp6c-29x5; imported by Chainlit's sql_alchemy module
+    "sqlalchemy[asyncio]>=2.1.8",   # Chainlit SQLAlchemyDataLayer; [asyncio] brings greenlet
+    "aiohttp>=3.14.5",   # >=3.14.4: GHSA-2g87-pp6c-29x5; imported by Chainlit's sql_alchemy module
 ]
 
 [project.optional-dependencies]
@@ -288,10 +288,9 @@ DEP003 = [
     "openai", "anthropic", "google", "ollama", "pydantic",
 ]
 # DEP002: aiohttp is imported only by Chainlit's sql_alchemy module, which Chainlit
-# does not install it for. sqlalchemy is declared ahead of the #16 step that imports
-# it; that step drops its entry once src/ imports the package.
+# does not install it for.
 DEP002 = [
-    "aiohttp", "sqlalchemy",
+    "aiohttp",
 ]
 
 [tool.mcp-tools-py]
