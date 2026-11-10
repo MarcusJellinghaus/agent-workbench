@@ -37,9 +37,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 4: Delete — checkpointer first, deleted set, WAL checkpoints — [step_4.md](./steps/step_4.md)
-- [ ] Implementation: tests in `test_ui_data_layer_delete.py`, `data_layer` fixture with real saver; `CheckpointerProvider`, `delete_thread`, `finish_turn`, `_delete_everywhere`, `_checkpoint_wal`, early returns for deleted ids
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests in `test_ui_data_layer_delete.py`, `data_layer` fixture with real saver; `CheckpointerProvider`, `delete_thread`, `finish_turn`, `_delete_everywhere`, `_checkpoint_wal`, early returns for deleted ids
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Launcher — auth secret, removed cookie env vars, `allow_thread_sharing` — [step_5.md](./steps/step_5.md)
 - [ ] Implementation: tests in `test_ui_env.py`; `AUTH_SECRET_FILE`, `_auth_secret`, `CHAINLIT_AUTH_SECRET` in `prepare_chainlit_env`, `_REMOVED_ENV_VARS`, `allow_thread_sharing = false` in `_CONFIG_TEMPLATE`

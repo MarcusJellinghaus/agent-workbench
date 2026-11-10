@@ -7,6 +7,7 @@ module.
 import json
 import logging
 import sqlite3
+from collections.abc import Awaitable, Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,12 @@ from typing import Any
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from sqlalchemy import URL, event
 
+from agent_workbench.apps.agent import checkpoint_wal
+
 logger = logging.getLogger(__name__)
+
+# Returns the LangGraph checkpointer (an ``AsyncSqliteSaver``); injectable for tests.
+CheckpointerProvider = Callable[[], Awaitable[Any]]
 
 _TABLES = ("users", "threads", "steps", "elements", "feedbacks")
 
@@ -136,14 +142,61 @@ class SessionDataLayer(SQLAlchemyDataLayer):  # type: ignore[misc]  # chainlit s
 
     SQLite has no array or JSON type: tags are JSON-encoded on write, and the JSON
     columns are decoded when threads are read.
+
+    A delete also removes the thread's checkpoints. Deleted thread ids are kept for
+    the life of the process: later writes for them are skipped, and the end of a turn
+    still running on a deleted thread deletes again (:meth:`finish_turn`).
     """
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, checkpointer: CheckpointerProvider) -> None:
         prepare_database(db_path)
         # URL.create, not an f-string: survives Windows paths and "%" / "#".
         url = URL.create("sqlite+aiosqlite", database=str(db_path))
         super().__init__(conninfo=url)
         event.listen(self.engine.sync_engine, "connect", _set_secure_delete)
+        self._checkpointer = checkpointer
+        self._deleted: set[str] = set()
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """Delete the thread from the checkpointer, then Chainlit's rows.
+
+        A failing checkpointer delete propagates; the thread stays listed and can be
+        deleted again.
+        """
+        # Added first: blocks the writes of a turn still running on this thread.
+        self._deleted.add(thread_id)
+        try:
+            await self._delete_everywhere(thread_id)
+        except BaseException:
+            self._deleted.discard(thread_id)
+            raise
+
+    async def finish_turn(self, thread_id: str) -> None:
+        """Delete again what a turn wrote to a thread deleted while it ran."""
+        if thread_id in self._deleted:
+            await self._delete_everywhere(thread_id)
+
+    async def _delete_everywhere(self, thread_id: str) -> None:
+        """Delete checkpoints, then feedback, elements, steps, thread; WAL checkpoints."""
+        saver = await self._checkpointer()
+        # First and not caught: otherwise the conversation stays stored but invisible.
+        await saver.adelete_thread(thread_id)
+        await super().delete_thread(thread_id)
+        # After adelete_thread has returned: checkpoint_wal takes the saver's lock.
+        await checkpoint_wal(saver)
+        await self._checkpoint_wal()
+
+    async def _checkpoint_wal(self) -> None:
+        """Move the WAL into ``chainlit.sqlite`` and empty it; log, never raise."""
+        try:
+            # Own connection, not execute_sql: that one swallows errors and the result.
+            async with self.engine.connect() as conn:
+                result = await conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                row = result.first()
+            if row and row[0]:
+                logger.warning("WAL checkpoint of the Chainlit database was busy")
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.exception("WAL checkpoint of the Chainlit database failed")
 
     async def update_thread(
         self,
@@ -153,7 +206,12 @@ class SessionDataLayer(SQLAlchemyDataLayer):  # type: ignore[misc]  # chainlit s
         metadata: dict[str, Any] | None = None,
         tags: list[str] | None = None,
     ) -> None:
-        """Save the thread; *tags* JSON-encoded (``None`` leaves the column alone)."""
+        """Save the thread; *tags* JSON-encoded (``None`` leaves the column alone).
+
+        Does nothing for a deleted thread.
+        """
+        if thread_id in self._deleted:
+            return
         await super().update_thread(
             thread_id,
             name=name,
@@ -163,7 +221,12 @@ class SessionDataLayer(SQLAlchemyDataLayer):  # type: ignore[misc]  # chainlit s
         )
 
     async def create_step(self, step_dict: dict[str, Any]) -> None:
-        """Save a copy of the step with JSON-encoded tags; *step_dict* is untouched."""
+        """Save a copy of the step with JSON-encoded tags; *step_dict* is untouched.
+
+        Does nothing for a step of a deleted thread (``update_step`` comes here too).
+        """
+        if step_dict.get("threadId") in self._deleted:
+            return
         step = dict(step_dict)
         if "tags" in step:
             step["tags"] = _encode_tags(step["tags"])
