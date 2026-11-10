@@ -1,6 +1,6 @@
 # agent-workbench Security Design
 
-**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI)
+**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI, sessions)
 **Maintainer**: Marcus Jellinghaus
 
 Reporting vulnerabilities: see [`SECURITY.md`](../../SECURITY.md). Architecture: [`docs/architecture/architecture.md`](../architecture/architecture.md).
@@ -36,6 +36,7 @@ The model never gets a database connection or credentials. It can only request a
 - **Leaves the machine**: everything in the prompt – user messages, system prompt, tool descriptions and tool results – goes to the LLM provider.
 - **Network**: the chat UI binds to `127.0.0.1` only (`CHAINLIT_HOST` is forced). An origin-check middleware rejects foreign `Origin` headers on HTTP and WebSocket requests: Chainlit's Socket.IO server has its origin check off, and `allow_origins` in its config covers CORS only.
 - **Identity**: the app runs as the developer. Database access uses Windows authentication with the developer's own rights, which may exceed read-only. The tool configuration, not the database login, is the boundary.
+- **Chat UI sign-in**: header auth signs every request in as the OS user (`getpass.getuser()`), with no password. Anything that reaches `127.0.0.1:<port>` is signed in – see §6, row 9.
 
 ---
 
@@ -81,7 +82,8 @@ The model never gets a database connection or credentials. It can only request a
 - No database password: Windows authentication.
 - LLM API keys come from environment variables or the user config, never from the workspace folder.
 - Secrets in log lines are redacted (`mcp_coder_utils.redaction`).
-- Chainlit reads no `.env` file: its env file is pointed at a never-created file in its app root. Chainlit credential and integration env vars (database, Literal AI, Slack / Discord / Teams, custom auth, root path, SSL) are removed before Chainlit is imported.
+- Chainlit reads no `.env` file: its env file is pointed at a never-created file in its app root. Chainlit credential and integration env vars (database, Literal AI, Slack / Discord / Teams, custom auth, auth cookie, root path, SSL) are removed before Chainlit is imported.
+- `<app-data>/chainlit_auth_secret` is a credential: it signs Chainlit's session tokens. Generated on first run (`secrets.token_urlsafe(48)`) and reused; it wins over a `CHAINLIT_AUTH_SECRET` env var (a different env value is replaced with a warning that names neither value).
 
 ### 4.6 Limits
 
@@ -94,6 +96,7 @@ The model never gets a database connection or credentials. It can only request a
 
 - Core dependencies are kept minimal; LLM providers and tool packages are optional extras, imported only when configured.
 - Chainlit itself depends on the `mcp` SDK, so it is installed; the MCP feature is off in the generated Chainlit config, the app uses no MCP and the tool path never imports it (tested). Making mcp-workspace's Git / GitHub libraries optional is planned but not required; until then they are installed (unused while those tools are `deny`).
+- Session store: `langgraph-checkpoint-sqlite` (in `[langchain-base]`), `sqlalchemy[asyncio]`, `aiosqlite` and `aiohttp` (core); the floors of the checkpointer and `aiohttp` lie above their known advisories. `aiohttp` is imported only by Chainlit's data layer, never by our code.
 - Dependabot and OpenSSF Scorecard run on the repository.
 
 ---
@@ -103,11 +106,19 @@ The model never gets a database connection or credentials. It can only request a
 | Store | Content | Location | Retention |
 |---|---|---|---|
 | Tool-call log | One line per call: user, tool, parameters, result size, duration. No results. Secrets redacted. | User app-data folder | Until deleted |
-| Session database | Full conversations including tool results (LangGraph checkpointer + Chainlit data layer, SQLite) | User app-data folder | Until the user deletes the session in the UI |
+| Session database | Full conversations including tool results; feedback ratings and comments if the thumbs buttons are used | `<app-data>/sessions/`: `checkpoints.sqlite` (LangGraph checkpointer), `chainlit.sqlite` (Chainlit data layer) | Until the user deletes the session in the UI |
 
 Both stores lie outside the workspace folder, so the model cannot read them back through the workspace tools.
 
-Chainlit's app root (`.chainlit/`, `.files/`) is `chainlit/` in the user app-data folder. No database or Literal AI data layer is active (their env vars are removed); until #16, sessions live only in memory and are lost when the app stops.
+Chainlit's app root (`.chainlit/`, `.files/`) is `chainlit/` in the user app-data folder; the session databases are outside it, since Chainlit deletes `.files/` on shutdown. Only our own SQLite data layer is active; `DATABASE_URL` and Literal AI are removed.
+
+Sessions:
+
+- Both databases run in WAL mode, so each has `-wal` / `-shm` side files.
+- Deleting a conversation removes it from both databases: checkpoints first, then Chainlit's threads, steps and feedback. Writes that arrive for a deleted thread during a running turn are skipped, and the turn's end deletes it again.
+- `PRAGMA secure_delete=ON` on every connection of both databases, so deleted rows are overwritten with zeros; after a delete, `PRAGMA wal_checkpoint(TRUNCATE)` on both moves the zeroed pages into the main files and empties the WAL. A busy or failed checkpoint is logged, not raised.
+- Limits: wiping happens inside SQLite. Journal and WAL files that SQLite removes are not wiped at file-system level, and SSDs or backups may keep older copies.
+- Elements (files) are not persisted.
 
 ---
 
@@ -123,7 +134,7 @@ Chainlit's app root (`.chainlit/`, `.files/`) is `chainlit/` in the user app-dat
 | 6 | Path traversal out of the workspace | `normalize_path` in mcp-workspace (rejects `..`, resolves symlinks) | If path resolution fails, the containment check is skipped (documented gap in mcp-workspace) |
 | 7 | Credentials leak (database, LLM API key) | Windows authentication; API key from environment / user config; log redaction | Secrets stored in the data itself can reach the provider through tool results |
 | 8 | Expensive or long-running queries, huge files | Step limit per turn; output row limits; planned: statement timeout and fetch limit in mcp-tools-sql, maximum read size in mcp-workspace | Until those land, a slow query blocks the turn and a large file goes to the provider in full |
-| 9 | Sensitive data in logs and sessions | Tool-call log without results; stores in the user app-data folder, which the workspace guard keeps out of the workspace | Sessions with data are kept without time limit, protected only by the user profile |
+| 9 | Sensitive data in logs and sessions | Tool-call log without results; stores in the user app-data folder, which the workspace guard keeps out of the workspace; `secure_delete` and a WAL checkpoint when a session is deleted | Sessions with data are kept without time limit, protected only by the user profile. Header auth signs in anything that reaches `127.0.0.1:<port>`, so any local process – on a shared Windows host also other OS users – can read stored conversations through the page; the origin check only stops browsers. Accepted for M1 |
 | 10 | Compromised dependency | Minimal core, optional extras, pinned minimum versions, Dependabot, Scorecard | The LangChain / Chainlit ecosystem is large |
 
 ---

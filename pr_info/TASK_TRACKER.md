@@ -52,9 +52,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 7: Docs — README, security design, architecture — [step_7.md](./steps/step_7.md)
-- [ ] Implementation: `README.md`, `docs/security/security_design.md`, `docs/architecture/architecture.md`; `check_file_size` passes
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `README.md`, `docs/security/security_design.md`, `docs/architecture/architecture.md`; `check_file_size` passes
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 - [ ] PR review: review the full branch diff against `main` and address findings
