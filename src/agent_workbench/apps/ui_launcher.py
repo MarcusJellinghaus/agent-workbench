@@ -8,6 +8,7 @@ import argparse
 import json
 import logging
 import os
+import secrets
 import sys
 from importlib.metadata import version
 from importlib.util import find_spec
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 CHAINLIT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
+AUTH_SECRET_FILE = "chainlit_auth_secret"  # noqa: S105 - a file name, not a secret
 
 _UI_DEPENDENCIES = (
     "langgraph",
@@ -29,8 +31,9 @@ _UI_DEPENDENCIES = (
 )
 
 # Env vars that would switch on a Chainlit feature this app does not configure (data
-# layer, chat platforms, custom auth, root path, TLS), plus the ChainlitConfig fields
-# that pydantic-settings fills from env vars of the same name (case-insensitive).
+# layer, chat platforms, custom auth, auth cookie, root path, TLS), plus the
+# ChainlitConfig fields that pydantic-settings fills from env vars of the same name
+# (case-insensitive).
 _REMOVED_ENV_VARS: tuple[str, ...] = (
     "DATABASE_URL",
     "LITERAL_API_KEY",
@@ -41,6 +44,9 @@ _REMOVED_ENV_VARS: tuple[str, ...] = (
     "TEAMS_APP_ID",
     "TEAMS_APP_PASSWORD",
     "CHAINLIT_CUSTOM_AUTH",
+    "CHAINLIT_COOKIE_SAMESITE",
+    "CHAINLIT_AUTH_COOKIE_PATH",
+    "CHAINLIT_AUTH_COOKIE_NAME",
     "CHAINLIT_ROOT_PATH",
     "CHAINLIT_PARENT_ROOT_PATH",
     "CHAINLIT_SSL_CERT",
@@ -59,6 +65,7 @@ allow_origins = {origins}
 
 [features]
 edit_message = false
+allow_thread_sharing = false
 
 [features.spontaneous_file_upload]
 enabled = false
@@ -79,12 +86,23 @@ def chainlit_port() -> int:
     return int(os.environ.get("CHAINLIT_PORT") or DEFAULT_PORT)
 
 
+def _auth_secret(app_data: Path) -> str:
+    """Return the secret in ``<app_data>/AUTH_SECRET_FILE``, creating it if missing."""
+    path = app_data / AUTH_SECRET_FILE
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    secret = secrets.token_urlsafe(48)
+    path.write_text(secret, encoding="utf-8")
+    return secret
+
+
 def prepare_chainlit_env(app_data: Path) -> Path:
     """Set up the environment Chainlit reads at its first import.
 
     Points Chainlit's app root and ``.env`` file into the app-data folder, removes the
-    env vars in ``_REMOVED_ENV_VARS`` (warning per var that was set) and forces the
-    host to ``CHAINLIT_HOST``.
+    env vars in ``_REMOVED_ENV_VARS`` (warning per var that was set), forces the host
+    to ``CHAINLIT_HOST`` and sets ``CHAINLIT_AUTH_SECRET`` to the stored secret (a
+    different value in the environment is replaced with a warning).
 
     Args:
         app_data: The user app-data folder.
@@ -109,6 +127,13 @@ def prepare_chainlit_env(app_data: Path) -> Path:
             CHAINLIT_HOST,
         )
     os.environ["CHAINLIT_HOST"] = CHAINLIT_HOST
+    secret = _auth_secret(app_data)
+    if os.environ.get("CHAINLIT_AUTH_SECRET") not in (None, "", secret):
+        logger.warning(
+            "Ignoring CHAINLIT_AUTH_SECRET: the chat page uses the secret stored in %s",
+            app_data / AUTH_SECRET_FILE,
+        )
+    os.environ["CHAINLIT_AUTH_SECRET"] = secret
     return root
 
 
