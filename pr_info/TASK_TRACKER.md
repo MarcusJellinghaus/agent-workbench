@@ -47,9 +47,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 6: Tool-call log and `wrap_spec` - [step_6.md](./steps/step_6.md)
-- [ ] Implementation: `services/tool_call_log.py` (`truncate_text`, `sanitize_params`, `tool_call_log_path`, `log_tool_call`, `wrap_spec`), tests
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `services/tool_call_log.py` (`truncate_text`, `sanitize_params`, `tool_call_log_path`, `log_tool_call`, `wrap_spec`), tests
+- [x] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
+- [x] Commit message prepared
 
 ### Step 7: Tool errors, tool callbacks and inactivity pause - [step_7.md](./steps/step_7.md)
 - [ ] Implementation: `handle_tool_errors=True` in `build_graph`, `on_tool_start` / `on_tool_end` callbacks and idle-timer pause in `run_turn`, tests
