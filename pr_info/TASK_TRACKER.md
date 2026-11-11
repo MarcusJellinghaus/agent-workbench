@@ -42,9 +42,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 5: Result helper and `ToolSpec` → `StructuredTool` adapter - [step_5.md](./steps/step_5.md)
-- [ ] Implementation: `adapters/tool_results.py` (`result_text`), `adapters/tools.py` (`to_structured_tool`), tests
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `adapters/tool_results.py` (`result_text`), `adapters/tools.py` (`to_structured_tool`), tests
+- [x] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
+- [x] Commit message prepared
 
 ### Step 6: Toolset building with lazy package imports - [step_6.md](./steps/step_6.md)
 - [ ] Implementation: `Toolsets`, `build_toolsets`, `.importlinter` contracts, `[sql]` / `[sql-mssql]` / `[workspace]` extras, `dev` and install-from-github entries, `tests/adapters/tool_fixtures.py`, tests
