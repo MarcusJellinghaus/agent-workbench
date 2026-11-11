@@ -13,9 +13,8 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
-from mcp_coder_utils.redaction import token_fingerprint
-
 from agent_workbench.adapters.config_hints import suggest
+from agent_workbench.adapters.redaction import token_fingerprint
 
 from ._config_diagnostics import (
     _API_KEY_ENV,

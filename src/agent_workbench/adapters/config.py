@@ -12,9 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mcp_coder_utils.user_app_data import get_user_app_data_dir
-
 from agent_workbench.adapters.toml_utils import format_toml_error
+from agent_workbench.adapters.user_app_data import get_user_app_data_dir
 from agent_workbench.core.config import LLM_KEYS, LLMConfig
 
 logger = logging.getLogger(__name__)

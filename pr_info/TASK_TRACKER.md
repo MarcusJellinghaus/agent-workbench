@@ -27,9 +27,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 2: `mcp_coder_utils` shims and tightened import contract - [step_2.md](./steps/step_2.md)
-- [ ] Implementation: `redaction` / `tool_spec` / `user_app_data` shims, shim imports in `config.py` and `_provider_checks.py`, `.importlinter` contracts, `tests/adapters/test_shims.py`
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `redaction` / `tool_spec` / `user_app_data` shims, shim imports in `config.py` and `_provider_checks.py`, `.importlinter` contracts, `tests/adapters/test_shims.py`
+- [x] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: App log for the UI and clamped sibling loggers - [step_3.md](./steps/step_3.md)
 - [ ] Implementation: `setup_logging(log_file, console_level)` with sibling clamp, `app_log_file`, launcher default `INFO`, `restore_root_logging` fixture in `tests/conftest.py`, tests
