@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import re
 from collections.abc import Iterator
 from importlib.machinery import ModuleSpec
 from pathlib import Path
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent_workbench.apps import ui_launcher
+from agent_workbench.services.logging_setup import setup_logging as real_setup_logging
 
 ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the value the launcher must refuse
 _real_find_spec = importlib.util.find_spec
@@ -63,6 +65,48 @@ def test_passed_verify_starts_chainlit(
     assert root.is_relative_to(tmp_path)
     assert Path(os.environ["CHAINLIT_ENV_FILE"]).is_relative_to(tmp_path)
     assert (root / ".chainlit" / "config.toml").is_file()
+
+
+def test_main_logs_to_app_log_file_at_info(tmp_path: Path) -> None:
+    with (
+        patch("agent_workbench.services.logging_setup.setup_logging") as setup_logging,
+        patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
+    ):
+        assert ui_launcher.main([]) == 0
+    setup_logging.assert_called_once()
+    level, log_file = setup_logging.call_args.args
+    assert level == "INFO"
+    path = Path(log_file)
+    assert path.parent == tmp_path / "logs"
+    assert path.match("agent_workbench_ui_*.log")
+    assert setup_logging.call_args.kwargs == {"console_level": "OUTPUT"}
+
+
+def test_main_forwards_log_level_upper() -> None:
+    with (
+        patch("agent_workbench.services.logging_setup.setup_logging") as setup_logging,
+        patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
+    ):
+        assert ui_launcher.main(["--log-level", "debug"]) == 0
+    assert setup_logging.call_args.args[0] == "DEBUG"
+
+
+@pytest.mark.usefixtures("restore_root_logging")
+def test_main_creates_app_log_file(tmp_path: Path) -> None:
+    with (
+        patch(
+            "agent_workbench.services.logging_setup.setup_logging", real_setup_logging
+        ),
+        patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
+    ):
+        assert ui_launcher.main([]) == 0
+    assert [p.name for p in (tmp_path / "logs").glob("agent_workbench_ui_*.log")]
+
+
+def test_app_log_file_is_timestamped_under_logs(tmp_path: Path) -> None:
+    path = ui_launcher.app_log_file(tmp_path)
+    assert path.parent == tmp_path / "logs"
+    assert re.fullmatch(r"agent_workbench_ui_\d{8}_\d{6}\.log", path.name)
 
 
 @pytest.mark.parametrize(

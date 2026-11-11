@@ -10,6 +10,7 @@ import logging
 import os
 import secrets
 import sys
+from datetime import datetime
 from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
@@ -164,6 +165,12 @@ def write_chainlit_config(app_root: Path, port: int) -> Path:
     return path
 
 
+def app_log_file(app_data: Path) -> Path:
+    """Return ``<app_data>/logs/agent_workbench_ui_<YYYYmmdd_HHMMSS>.log``."""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return app_data / "logs" / f"agent_workbench_ui_{stamp}.log"
+
+
 def _missing_dependency() -> str | None:
     """Return the first module of ``_UI_DEPENDENCIES`` that is not installed, or None."""
     for name in _UI_DEPENDENCIES:
@@ -204,12 +211,16 @@ def main(argv: list[str] | None = None) -> int:
         "--log-level",
         type=str.upper,
         choices=LOG_LEVELS,
-        default="OUTPUT",
+        default="INFO",
         metavar="LEVEL",
-        help=f"logging level: {', '.join(LOG_LEVELS)} (default: OUTPUT)",
+        help=f"logging level of the app log: {', '.join(LOG_LEVELS)} (default: INFO)",
     )
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+
+    from agent_workbench.adapters.config import app_data_dir
+
+    app_data = app_data_dir()
+    setup_logging(args.log_level, str(app_log_file(app_data)), console_level="OUTPUT")
 
     from agent_workbench.adapters.ssl_setup import ensure_truststore
 
@@ -232,9 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         print(format_report(report))
         return 1
 
-    from agent_workbench.adapters.config import app_data_dir
-
-    root = prepare_chainlit_env(app_data_dir())
+    root = prepare_chainlit_env(app_data)
     write_chainlit_config(root, chainlit_port())
     _run_chainlit(str(Path(__file__).with_name("ui_target.py")))
     return 0

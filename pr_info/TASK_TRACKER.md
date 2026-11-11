@@ -32,9 +32,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 3: App log for the UI and clamped sibling loggers - [step_3.md](./steps/step_3.md)
-- [ ] Implementation: `setup_logging(log_file, console_level)` with sibling clamp, `app_log_file`, launcher default `INFO`, `restore_root_logging` fixture in `tests/conftest.py`, tests
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `setup_logging(log_file, console_level)` with sibling clamp, `app_log_file`, launcher default `INFO`, `restore_root_logging` fixture in `tests/conftest.py`, tests
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: `[tools]` config reading and validation - [step_4.md](./steps/step_4.md)
 - [ ] Implementation: `ConfigFile.tools` / `tools_type_error`, `TOOL_KEYS`, `REQUIRED_TOOL_KEYS`, `tool_path`, `tools_config_problems`, tests
