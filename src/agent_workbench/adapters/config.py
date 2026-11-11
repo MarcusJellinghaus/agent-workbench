@@ -1,17 +1,19 @@
-"""Config file reader and ``[llm]`` loader.
+"""Config file reader, ``[llm]`` loader and ``[tools]`` validation.
 
-Precedence per key: ``AGENT_WORKBENCH_LLM_*`` env var (empty = unset), then
-``~/.agent_workbench/config.toml`` ``[llm]``, then unset.
+Precedence per ``[llm]`` key: ``AGENT_WORKBENCH_LLM_*`` env var (empty = unset), then
+``~/.agent_workbench/config.toml`` ``[llm]``, then unset. ``[tools.*]`` tables have
+no env vars; :func:`tools_config_problems` checks them.
 """
 
 import logging
 import os
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent_workbench.adapters.config_hints import unknown_key_hint
 from agent_workbench.adapters.toml_utils import format_toml_error
 from agent_workbench.adapters.user_app_data import get_user_app_data_dir
 from agent_workbench.core.config import LLM_KEYS, LLMConfig
@@ -26,6 +28,17 @@ ENV_VARS: dict[str, str] = {
     "api_version": "AGENT_WORKBENCH_LLM_API_VERSION",
 }
 
+# Known [tools.*] subtables and their keys; every value is a path.
+# #18 adds its own table name here.
+TOOL_KEYS: dict[str, tuple[str, ...]] = {
+    "sql": ("query_config", "database_config"),
+    "workspace": ("project_dir",),
+}
+REQUIRED_TOOL_KEYS: dict[str, tuple[str, ...]] = {
+    "sql": ("query_config",),
+    "workspace": ("project_dir",),
+}
+
 
 @dataclass(frozen=True)
 class ConfigFile:
@@ -37,6 +50,8 @@ class ConfigFile:
         parse_error: Formatted TOML / read error, or None.
         llm: Raw ``[llm]`` table; empty when absent or unreadable.
         llm_type_error: Set when ``[llm]`` is present but not a table.
+        tools: Raw ``[tools]`` table; empty when absent or unreadable.
+        tools_type_error: Set when ``[tools]`` is present but not a table.
     """
 
     path: Path
@@ -44,6 +59,8 @@ class ConfigFile:
     parse_error: str | None
     llm: dict[str, Any]
     llm_type_error: str | None = None
+    tools: dict[str, Any] = field(default_factory=dict)
+    tools_type_error: str | None = None
 
 
 def app_data_dir() -> Path:
@@ -64,8 +81,24 @@ def config_file_path() -> Path:
     return app_data_dir() / "config.toml"
 
 
+def _table(data: Mapping[str, Any], name: str) -> tuple[dict[str, Any], str | None]:
+    """Return the top-level table *name* and its type error.
+
+    Args:
+        data: The parsed TOML document.
+        name: Top-level key.
+
+    Returns:
+        The table (empty when absent or not a table) and the type error or None.
+    """
+    value = data.get(name, {})
+    if not isinstance(value, dict):
+        return {}, f"expected table, got {type(value).__name__}"
+    return value, None
+
+
 def read_config_file(path: Path | None = None) -> ConfigFile:
-    """Read the config file and extract its raw ``[llm]`` table.
+    """Read the config file and extract its raw ``[llm]`` and ``[tools]`` tables.
 
     Args:
         path: Config file to read; defaults to ``config_file_path()``.
@@ -83,12 +116,17 @@ def read_config_file(path: Path | None = None) -> ConfigFile:
         return ConfigFile(path, True, format_toml_error(path, e), {})
     except OSError as e:
         return ConfigFile(path, True, f"Error reading config file: {path}\n{e}", {})
-    llm = data.get("llm", {})
-    if not isinstance(llm, dict):
-        return ConfigFile(
-            path, True, None, {}, f"expected table, got {type(llm).__name__}"
-        )
-    return ConfigFile(path, True, None, llm)
+    llm, llm_type_error = _table(data, "llm")
+    tools, tools_type_error = _table(data, "tools")
+    return ConfigFile(
+        path,
+        True,
+        None,
+        llm,
+        llm_type_error,
+        tools=tools,
+        tools_type_error=tools_type_error,
+    )
 
 
 def env_values() -> dict[str, str | None]:
@@ -118,6 +156,74 @@ def wrong_type_keys(llm: Mapping[str, Any]) -> list[str]:
         for key in LLM_KEYS
         if key in llm and not env.get(key) and not isinstance(llm[key], str)
     ]
+
+
+def tool_path(value: str) -> Path:
+    """Return *value* as a path with ``~`` expanded.
+
+    Args:
+        value: A ``[tools.*]`` path value.
+
+    Returns:
+        The expanded path.
+    """
+    return Path(value).expanduser()
+
+
+def _with_hint(message: str, hint: str | None) -> str:
+    return message + (f" — {hint}" if hint else "")
+
+
+def tools_config_problems(config_file: ConfigFile) -> list[tuple[str, str, str]]:
+    """Return ``(label, status, message)`` rows for every problem in ``[tools]``.
+
+    status is ``"error"`` or ``"warning"``. Validating the files the paths point to
+    is the tool package's job.
+
+    Args:
+        config_file: The read config file.
+
+    Returns:
+        Problem rows; empty when ``[tools]`` is valid or absent.
+    """
+    if config_file.tools_type_error:
+        return [("[tools]", "error", config_file.tools_type_error)]
+    problems: list[tuple[str, str, str]] = []
+    for name, table in config_file.tools.items():
+        label = f"[tools.{name}]"
+        if name not in TOOL_KEYS:
+            hint = unknown_key_hint("tools", name, TOOL_KEYS)
+            problems.append(
+                (label, "warning", _with_hint(f"unknown table: {name}", hint))
+            )
+            continue
+        if not isinstance(table, dict):
+            problems.append(
+                (label, "error", f"expected table, got {type(table).__name__}")
+            )
+            continue
+        for key in REQUIRED_TOOL_KEYS[name]:
+            if key not in table:
+                problems.append((label, "error", f"{key} missing"))
+        for key, value in table.items():
+            if key not in TOOL_KEYS[name]:
+                hint = unknown_key_hint(f"tools.{name}", key, TOOL_KEYS[name])
+                problems.append(
+                    (label, "warning", _with_hint(f"unknown key: {key}", hint))
+                )
+            elif not isinstance(value, str):
+                problems.append(
+                    (
+                        label,
+                        "error",
+                        f"{key}: expected str, got {type(value).__name__} ('{value}')",
+                    )
+                )
+            elif not tool_path(value).is_absolute():
+                problems.append(
+                    (label, "error", f"{key}: relative path not allowed: {value}")
+                )
+    return problems
 
 
 def load_llm_config(config_file: ConfigFile | None = None) -> LLMConfig:

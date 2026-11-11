@@ -1,15 +1,19 @@
 import logging
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from agent_workbench.adapters.config import (
     ENV_VARS,
+    ConfigFile,
     app_data_dir,
     config_file_path,
     load_llm_config,
     read_config_file,
+    tool_path,
+    tools_config_problems,
     wrong_type_keys,
 )
 from agent_workbench.adapters.toml_utils import format_toml_error
@@ -192,3 +196,139 @@ def test_config_file_path_is_in_app_data_dir(
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     assert app_data_dir() == tmp_path / ".agent_workbench"
     assert config_file_path() == app_data_dir() / "config.toml"
+
+
+def test_tools_tables_read(tmp_path: Path) -> None:
+    query = tmp_path / "queries.toml"
+    path = _write(
+        tmp_path,
+        f"[tools.sql]\nquery_config = '{query}'\n"
+        f"[tools.workspace]\nproject_dir = '{tmp_path}'\n",
+    )
+    config_file = read_config_file(path)
+    assert config_file.tools == {
+        "sql": {"query_config": str(query)},
+        "workspace": {"project_dir": str(tmp_path)},
+    }
+    assert config_file.tools_type_error is None
+
+
+def test_no_tools_table(tmp_path: Path) -> None:
+    config_file = read_config_file(_write(tmp_path, '[llm]\nmodel = "m"\n'))
+    assert config_file.tools == {}
+    assert config_file.tools_type_error is None
+    assert read_config_file(tmp_path / "missing.toml").tools == {}
+
+
+def test_tools_not_a_table(tmp_path: Path) -> None:
+    config_file = read_config_file(_write(tmp_path, 'tools = "x"\n'))
+    assert config_file.parse_error is None
+    assert config_file.tools_type_error == "expected table, got str"
+    assert config_file.tools == {}
+
+
+def test_broken_llm_still_reads_tools(tmp_path: Path) -> None:
+    path = _write(tmp_path, f"llm = 1\n[tools.workspace]\nproject_dir = '{tmp_path}'\n")
+    config_file = read_config_file(path)
+    assert config_file.llm_type_error == "expected table, got int"
+    assert config_file.llm == {}
+    assert config_file.tools == {"workspace": {"project_dir": str(tmp_path)}}
+
+
+def test_tool_path_expands_home() -> None:
+    assert tool_path("~/x") == Path.home() / "x"
+
+
+_ABS_DIR = str(Path(__file__).resolve().parent)
+_ABS_FILE = str(Path(__file__).resolve().parent / "q.toml")
+
+
+def _config(tools: dict[str, Any], tools_type_error: str | None = None) -> ConfigFile:
+    return ConfigFile(
+        Path("config.toml"),
+        True,
+        None,
+        {},
+        tools=tools,
+        tools_type_error=tools_type_error,
+    )
+
+
+@pytest.mark.parametrize(
+    ("tools", "expected"),
+    [
+        pytest.param(
+            {
+                "sql": {"query_config": _ABS_FILE, "database_config": _ABS_FILE},
+                "workspace": {"project_dir": _ABS_DIR},
+            },
+            [],
+            id="valid",
+        ),
+        pytest.param({"sql": {"query_config": "~/q.toml"}}, [], id="home-expanded"),
+        pytest.param(
+            {"sql": {"query_config": "q.toml"}},
+            [
+                (
+                    "[tools.sql]",
+                    "error",
+                    "query_config: relative path not allowed: q.toml",
+                )
+            ],
+            id="relative",
+        ),
+        pytest.param(
+            {"workspace": {"project_dir": 5}},
+            [
+                (
+                    "[tools.workspace]",
+                    "error",
+                    "project_dir: expected str, got int ('5')",
+                )
+            ],
+            id="not-a-string",
+        ),
+        pytest.param(
+            {"sql": {"database_config": _ABS_FILE}},
+            [("[tools.sql]", "error", "query_config missing")],
+            id="missing-required",
+        ),
+        pytest.param(
+            {"sql": {"query_config": _ABS_FILE, "query_configs": "x"}},
+            [
+                (
+                    "[tools.sql]",
+                    "warning",
+                    "unknown key: query_configs — did you mean query_config?",
+                )
+            ],
+            id="unknown-key",
+        ),
+        pytest.param(
+            {"foo": {"x": "y"}},
+            [("[tools.foo]", "warning", "unknown table: foo")],
+            id="unknown-table",
+        ),
+        pytest.param(
+            {"sqll": {}},
+            [("[tools.sqll]", "warning", "unknown table: sqll — did you mean sql?")],
+            id="unknown-table-hint",
+        ),
+        pytest.param(
+            {"sql": "x"},
+            [("[tools.sql]", "error", "expected table, got str")],
+            id="subtable-not-a-table",
+        ),
+    ],
+)
+def test_tools_config_problems(
+    tools: dict[str, Any], expected: list[tuple[str, str, str]]
+) -> None:
+    assert tools_config_problems(_config(tools)) == expected
+
+
+def test_tools_config_problems_type_error() -> None:
+    config_file = _config({}, tools_type_error="expected table, got str")
+    assert tools_config_problems(config_file) == [
+        ("[tools]", "error", "expected table, got str")
+    ]

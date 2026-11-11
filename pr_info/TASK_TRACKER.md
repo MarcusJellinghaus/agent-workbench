@@ -37,9 +37,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 4: `[tools]` config reading and validation - [step_4.md](./steps/step_4.md)
-- [ ] Implementation: `ConfigFile.tools` / `tools_type_error`, `TOOL_KEYS`, `REQUIRED_TOOL_KEYS`, `tool_path`, `tools_config_problems`, tests
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `ConfigFile.tools` / `tools_type_error`, `TOOL_KEYS`, `REQUIRED_TOOL_KEYS`, `tool_path`, `tools_config_problems`, tests
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Result helper and `ToolSpec` → `StructuredTool` adapter - [step_5.md](./steps/step_5.md)
 - [ ] Implementation: `adapters/tool_results.py` (`result_text`), `adapters/tools.py` (`to_structured_tool`), tests
