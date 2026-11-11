@@ -182,6 +182,11 @@ ignore_missing_imports = true
 follow_imports = "skip"  # untyped user_session / Message.send fail no-untyped-call
 
 [[tool.mypy.overrides]]
+module = ["mcp_tools_sql", "mcp_tools_sql.*", "mcp_workspace", "mcp_workspace.*"]
+ignore_missing_imports = true
+follow_imports = "skip"  # optional extras, imported lazily on the tool path
+
+[[tool.mypy.overrides]]
 module = ["ollama", "ollama.*"]
 ignore_missing_imports = true
 

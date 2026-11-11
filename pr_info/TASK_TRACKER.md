@@ -22,9 +22,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 ### Step 1: mypy overrides for the tool packages - [step_1.md](./steps/step_1.md)
-- [ ] Implementation: mypy overrides for `mcp_tools_sql` / `mcp_workspace` in `pyproject.toml`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: mypy overrides for `mcp_tools_sql` / `mcp_workspace` in `pyproject.toml`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: `mcp_coder_utils` shims and tightened import contract - [step_2.md](./steps/step_2.md)
 - [ ] Implementation: `redaction` / `tool_spec` / `user_app_data` shims, shim imports in `config.py` and `_provider_checks.py`, `.importlinter` contracts, `tests/adapters/test_shims.py`
