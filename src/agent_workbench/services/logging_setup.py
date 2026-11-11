@@ -13,13 +13,11 @@ LOG_LEVELS: tuple[str, ...] = (
     "CRITICAL",
 )
 
-SIBLING_LOGGERS: tuple[str, ...] = ("mcp_workspace", "mcp_tools_sql")
-
 
 def setup_logging(
     log_level: str, log_file: str | None = None, console_level: str | None = None
 ) -> None:
-    """Configure logging (mcp_coder_utils), quieten SDK logs, clamp sibling loggers.
+    """Configure logging (mcp_coder_utils) and quieten SDK logs.
 
     Args:
         log_level: Level of the file sink, and of the console when no
@@ -35,7 +33,3 @@ def setup_logging(
     # WARNING level
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    # At DEBUG the tool packages log full tool parameters and results unredacted.
-    for name in SIBLING_LOGGERS:
-        logging.getLogger(name).setLevel(logging.INFO)

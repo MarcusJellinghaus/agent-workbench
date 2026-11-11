@@ -2,7 +2,8 @@
 
 Precedence per ``[llm]`` key: ``AGENT_WORKBENCH_LLM_*`` env var (empty = unset), then
 ``~/.agent_workbench/config.toml`` ``[llm]``, then unset. ``[tools.*]`` tables have
-no env vars; :func:`tools_config_problems` checks them.
+no env vars; :func:`tools_config_problems` checks their shape; their keys belong to the
+toolset provider of the same name.
 """
 
 import logging
@@ -13,7 +14,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent_workbench.adapters.config_hints import unknown_key_hint
 from agent_workbench.adapters.toml_utils import format_toml_error
 from agent_workbench.adapters.user_app_data import get_user_app_data_dir
 from agent_workbench.core.config import LLM_KEYS, LLMConfig
@@ -26,17 +26,6 @@ ENV_VARS: dict[str, str] = {
     "model": "AGENT_WORKBENCH_LLM_MODEL",
     "base_url": "AGENT_WORKBENCH_LLM_BASE_URL",
     "api_version": "AGENT_WORKBENCH_LLM_API_VERSION",
-}
-
-# Known [tools.*] subtables and their keys; every value is a path.
-# #18 adds its own table name here.
-TOOL_KEYS: dict[str, tuple[str, ...]] = {
-    "sql": ("query_config", "database_config"),
-    "workspace": ("project_dir",),
-}
-REQUIRED_TOOL_KEYS: dict[str, tuple[str, ...]] = {
-    "sql": ("query_config",),
-    "workspace": ("project_dir",),
 }
 
 
@@ -158,27 +147,11 @@ def wrong_type_keys(llm: Mapping[str, Any]) -> list[str]:
     ]
 
 
-def tool_path(value: str) -> Path:
-    """Return *value* as a path with ``~`` expanded.
-
-    Args:
-        value: A ``[tools.*]`` path value.
-
-    Returns:
-        The expanded path.
-    """
-    return Path(value).expanduser()
-
-
-def _with_hint(message: str, hint: str | None) -> str:
-    return message + (f" — {hint}" if hint else "")
-
-
 def tools_config_problems(config_file: ConfigFile) -> list[tuple[str, str, str]]:
-    """Return ``(label, status, message)`` rows for every problem in ``[tools]``.
+    """Return ``(label, status, message)`` error rows for the shape of ``[tools]``.
 
-    status is ``"error"`` or ``"warning"``. Validating the files the paths point to
-    is the tool package's job.
+    Only the shape is checked: ``[tools]`` and each ``[tools.<name>]`` must be tables.
+    Keys and paths belong to the provider registered as ``<name>`` (its ``verify`` rows).
 
     Args:
         config_file: The read config file.
@@ -188,42 +161,11 @@ def tools_config_problems(config_file: ConfigFile) -> list[tuple[str, str, str]]
     """
     if config_file.tools_type_error:
         return [("[tools]", "error", config_file.tools_type_error)]
-    problems: list[tuple[str, str, str]] = []
-    for name, table in config_file.tools.items():
-        label = f"[tools.{name}]"
-        if name not in TOOL_KEYS:
-            hint = unknown_key_hint("tools", name, TOOL_KEYS)
-            problems.append(
-                (label, "warning", _with_hint(f"unknown table: {name}", hint))
-            )
-            continue
-        if not isinstance(table, dict):
-            problems.append(
-                (label, "error", f"expected table, got {type(table).__name__}")
-            )
-            continue
-        for key in REQUIRED_TOOL_KEYS[name]:
-            if key not in table:
-                problems.append((label, "error", f"{key} missing"))
-        for key, value in table.items():
-            if key not in TOOL_KEYS[name]:
-                hint = unknown_key_hint(f"tools.{name}", key, TOOL_KEYS[name])
-                problems.append(
-                    (label, "warning", _with_hint(f"unknown key: {key}", hint))
-                )
-            elif not isinstance(value, str):
-                problems.append(
-                    (
-                        label,
-                        "error",
-                        f"{key}: expected str, got {type(value).__name__} ('{value}')",
-                    )
-                )
-            elif not tool_path(value).is_absolute():
-                problems.append(
-                    (label, "error", f"{key}: relative path not allowed: {value}")
-                )
-    return problems
+    return [
+        (f"[tools.{name}]", "error", f"expected table, got {type(table).__name__}")
+        for name, table in config_file.tools.items()
+        if not isinstance(table, dict)
+    ]
 
 
 def load_llm_config(config_file: ConfigFile | None = None) -> LLMConfig:

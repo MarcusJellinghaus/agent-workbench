@@ -12,7 +12,6 @@ from agent_workbench.adapters.config import (
     config_file_path,
     load_llm_config,
     read_config_file,
-    tool_path,
     tools_config_problems,
     wrong_type_keys,
 )
@@ -235,14 +234,6 @@ def test_broken_llm_still_reads_tools(tmp_path: Path) -> None:
     assert config_file.tools == {"workspace": {"project_dir": str(tmp_path)}}
 
 
-def test_tool_path_expands_home() -> None:
-    assert tool_path("~/x") == Path.home() / "x"
-
-
-_ABS_DIR = str(Path(__file__).resolve().parent)
-_ABS_FILE = str(Path(__file__).resolve().parent / "q.toml")
-
-
 def _config(tools: dict[str, Any], tools_type_error: str | None = None) -> ConfigFile:
     return ConfigFile(
         Path("config.toml"),
@@ -257,66 +248,16 @@ def _config(tools: dict[str, Any], tools_type_error: str | None = None) -> Confi
 @pytest.mark.parametrize(
     ("tools", "expected"),
     [
+        pytest.param({}, [], id="empty"),
+        pytest.param({"alpha": {}, "beta": {}}, [], id="valid-tables"),
         pytest.param(
-            {
-                "sql": {"query_config": _ABS_FILE, "database_config": _ABS_FILE},
-                "workspace": {"project_dir": _ABS_DIR},
-            },
+            {"foo": {"path": "relative.toml", "count": 5, "nested": {"x": "y"}}},
             [],
-            id="valid",
-        ),
-        pytest.param({"sql": {"query_config": "~/q.toml"}}, [], id="home-expanded"),
-        pytest.param(
-            {"sql": {"query_config": "q.toml"}},
-            [
-                (
-                    "[tools.sql]",
-                    "error",
-                    "query_config: relative path not allowed: q.toml",
-                )
-            ],
-            id="relative",
+            id="any-keys",
         ),
         pytest.param(
-            {"workspace": {"project_dir": 5}},
-            [
-                (
-                    "[tools.workspace]",
-                    "error",
-                    "project_dir: expected str, got int ('5')",
-                )
-            ],
-            id="not-a-string",
-        ),
-        pytest.param(
-            {"sql": {"database_config": _ABS_FILE}},
-            [("[tools.sql]", "error", "query_config missing")],
-            id="missing-required",
-        ),
-        pytest.param(
-            {"sql": {"query_config": _ABS_FILE, "query_configs": "x"}},
-            [
-                (
-                    "[tools.sql]",
-                    "warning",
-                    "unknown key: query_configs — did you mean query_config?",
-                )
-            ],
-            id="unknown-key",
-        ),
-        pytest.param(
-            {"foo": {"x": "y"}},
-            [("[tools.foo]", "warning", "unknown table: foo")],
-            id="unknown-table",
-        ),
-        pytest.param(
-            {"sqll": {}},
-            [("[tools.sqll]", "warning", "unknown table: sqll — did you mean sql?")],
-            id="unknown-table-hint",
-        ),
-        pytest.param(
-            {"sql": "x"},
-            [("[tools.sql]", "error", "expected table, got str")],
+            {"alpha": {}, "beta": "x"},
+            [("[tools.beta]", "error", "expected table, got str")],
             id="subtable-not-a-table",
         ),
     ],

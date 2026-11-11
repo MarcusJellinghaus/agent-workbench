@@ -57,9 +57,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 8: Remove the hard-coded tool packages - [step_8.md](./steps/step_8.md)
-- [ ] Implementation: revert the tool-package mypy override, remove `SIBLING_LOGGERS` and its clamp loop, remove `TOOL_KEYS` / `REQUIRED_TOOL_KEYS` / `tool_path` and the key checks (`tools_config_problems` → shape only), adjust tests
-- [ ] Quality checks: pylint, pytest, mypy, vulture — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: revert the tool-package mypy override, remove `SIBLING_LOGGERS` and its clamp loop, remove `TOOL_KEYS` / `REQUIRED_TOOL_KEYS` / `tool_path` and the key checks (`tools_config_problems` → shape only), adjust tests
+- [x] Quality checks: pylint, pytest, mypy, vulture — fix all issues
+- [x] Commit message prepared
 
 ### Step 9: Toolset providers: entry-point discovery and `build_toolsets` - [step_9.md](./steps/step_9.md)
 - [ ] Implementation: `adapters/toolset_providers.py`, `Toolsets` / `build_toolsets`, shim re-exports, `tool_packages_isolation` contract, extras + DEP002 ignore, `tests/adapters/tool_fixtures.py` (fake provider), tests

@@ -5,11 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_workbench.services.logging_setup import (
-    LOG_LEVELS,
-    SIBLING_LOGGERS,
-    setup_logging,
-)
+from agent_workbench.services.logging_setup import LOG_LEVELS, setup_logging
 
 _EXPECTED_LEVELS = {
     "openai._base_client": logging.INFO,
@@ -21,8 +17,7 @@ _EXPECTED_LEVELS = {
 
 @pytest.fixture(name="restore_levels")
 def _restore_levels() -> Iterator[None]:
-    names = [*_EXPECTED_LEVELS, *SIBLING_LOGGERS]
-    previous = {name: logging.getLogger(name).level for name in names}
+    previous = {name: logging.getLogger(name).level for name in _EXPECTED_LEVELS}
     yield
     for name, level in previous.items():
         logging.getLogger(name).setLevel(level)
@@ -54,14 +49,6 @@ def test_setup_logging_quietens_sdk_loggers() -> None:
         setup_logging("DEBUG")
     for name, level in _EXPECTED_LEVELS.items():
         assert logging.getLogger(name).level == level, name
-
-
-@pytest.mark.usefixtures("restore_levels", "restore_root_logging")
-@pytest.mark.parametrize("name", ["mcp_workspace", "mcp_tools_sql"])
-def test_setup_logging_clamps_sibling_loggers(name: str) -> None:
-    logging.getLogger(name).setLevel(logging.NOTSET)
-    setup_logging("DEBUG")
-    assert logging.getLogger(name).level == logging.INFO
 
 
 @pytest.mark.usefixtures("restore_levels", "restore_root_logging")
