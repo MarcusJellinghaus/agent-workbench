@@ -77,6 +77,7 @@ apps.ui_handlers       → cl.Step(type="tool") per call, open steps closed in f
 | `src/agent_workbench/adapters/tools.py` | `Toolsets`, `build_toolsets`, `to_structured_tool` |
 | `src/agent_workbench/services/tool_call_log.py` | `truncate_text`, `sanitize_params`, `log_tool_call`, `wrap_spec` |
 | `src/agent_workbench/services/tool_filter.py` | `enabled_specs` |
+| `tests/conftest.py` | `restore_root_logging` fixture (restores and closes root log handlers) |
 | `tests/adapters/test_shims.py` | shim re-exports |
 | `tests/adapters/test_tool_results.py` | result conversion |
 | `tests/adapters/test_tools.py` | adapter + toolset build |

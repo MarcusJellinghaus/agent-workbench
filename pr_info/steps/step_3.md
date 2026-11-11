@@ -14,6 +14,7 @@ around it (the tool-call JSONL writer of step 7 is the only documented exception
 - `src/agent_workbench/services/logging_setup.py`
 - `src/agent_workbench/apps/ui_launcher.py`
 - `tests/services/test_logging_setup.py`, `tests/apps/test_ui_launcher.py`
+- new `tests/conftest.py` (shared fixture restoring the root logging handlers)
 
 ## WHAT
 ```python
@@ -53,8 +54,10 @@ app_log_file(app_data):
 
 ## Tests
 Tests calling the real `setup_logging` must save `logging.getLogger().handlers` and the
-root level, and in teardown remove/close every added handler and restore them (a fixture
-in `test_logging_setup.py`); Windows cannot delete an open log file.
+root level, and in teardown remove/close every added handler and restore them; Windows
+cannot delete an open log file. This is one fixture, `restore_root_logging`, in the new
+`tests/conftest.py` (not autouse), so both `test_logging_setup.py` and
+`test_ui_launcher.py` can request it.
 - `test_logging_setup.py`:
   - with `log_file=tmp_path/"x.log"`, `console_level="OUTPUT"`: a record at INFO lands in
     the file; the file exists.
@@ -66,8 +69,9 @@ in `test_logging_setup.py`); Windows cannot delete an open log file.
   - `main([])` calls `setup_logging` with `"INFO"`, a path under `tmp_path / "logs"`
     named `agent_workbench_ui_*.log`, and `console_level="OUTPUT"`.
   - `main(["--log-level", "debug"])` passes `"DEBUG"`.
-  - one test with the real `setup_logging` (fixture restoring handlers) asserts the app-log
-    file is created.
+  - one test with the real `setup_logging` (re-patched over the autouse mock, using the
+    `restore_root_logging` fixture from `tests/conftest.py`) asserts the app-log file is
+    created.
 
 ## DATA
 `app_log_file` → `Path`.
