@@ -31,6 +31,9 @@ IDLE_TIMEOUT = (
 )
 OVERALL_TIMEOUT = 3600  # mcp_coder _AGENT_OVERALL_TIMEOUT
 
+ToolStart = Callable[[str, str, dict[str, Any]], Awaitable[None]]  # run_id, name, args
+ToolEnd = Callable[[str, str], Awaitable[None]]  # run_id, output text
+
 _IDLE_MSG = "No response from the model for {s} s – turn aborted."
 _OVERALL_MSG = "Turn exceeded {s} s – aborted."
 _STEPS_MSG = (
@@ -56,7 +59,10 @@ def build_graph(chat_model: Any, tools: Sequence[Any], checkpointer: Any) -> Any
 
     graph = StateGraph(MessagesState)
     graph.add_node("model", call_model)
-    graph.add_node("tools", ToolNode(list(tools)))
+    # The default handler re-raises everything except ToolInvocationError; with True
+    # every tool exception becomes an error ToolMessage (its text goes to the provider)
+    # and the turn continues. asyncio.CancelledError is not an Exception and propagates.
+    graph.add_node("tools", ToolNode(list(tools), handle_tool_errors=True))
     graph.add_edge(START, "model")
     graph.add_conditional_edges("model", tools_condition)
     graph.add_edge("tools", "model")
@@ -189,11 +195,17 @@ async def run_turn(  # pylint: disable=too-many-arguments
     *,
     idle_timeout: float = IDLE_TIMEOUT,
     overall_timeout: float = OVERALL_TIMEOUT,
+    on_tool_start: ToolStart | None = None,
+    on_tool_end: ToolEnd | None = None,
 ) -> str | None:
     """Run one turn; stream text via *on_text*; return an error message or None.
 
     Stop (cancelling the calling task) propagates as ``asyncio.CancelledError``
     and adds no message.
+
+    The inactivity limit applies per model call: it is paused from a tool start to
+    the next model start, so a long tool run does not fail the turn. The overall
+    limit always applies.
 
     Args:
         graph: The compiled graph from :func:`build_graph`.
@@ -205,8 +217,11 @@ async def run_turn(  # pylint: disable=too-many-arguments
             when the model did not stream.
         token_usage: Updated with the turn's summed usage, only when the turn
             completed.
-        idle_timeout: Seconds without a stream event before the turn fails.
+        idle_timeout: Seconds without a stream event before the turn fails
+            (paused while tools run).
         overall_timeout: Seconds the whole turn may take.
+        on_tool_start: Receives ``(run_id, tool name, args)`` when a tool starts.
+        on_tool_end: Receives ``(run_id, output text)`` when a tool ends or fails.
 
     Returns:
         ``None`` on success, else the user-facing error message.
@@ -222,6 +237,7 @@ async def run_turn(  # pylint: disable=too-many-arguments
     loop = asyncio.get_running_loop()
     usage: UsageInfo = {}
     streamed = False
+    paused = False
     overall = asyncio.timeout(overall_timeout)
     idle = asyncio.timeout(idle_timeout)
     try:
@@ -233,14 +249,21 @@ async def run_turn(  # pylint: disable=too-many-arguments
             ) as events,
         ):
             async for event in events:
-                idle.reschedule(loop.time() + idle_timeout)
-                if event["event"] == "on_chat_model_stream":
+                kind = event["event"]
+                if kind == "on_tool_start":
+                    paused = True
+                elif kind == "on_chat_model_start":
+                    paused = False
+                idle.reschedule(None if paused else loop.time() + idle_timeout)
+                if kind == "on_chat_model_stream":
                     delta = event["data"]["chunk"].text
                     if delta:
                         await on_text(delta)
                         streamed = True
-                elif event["event"] == "on_chat_model_end":
+                elif kind == "on_chat_model_end":
                     usage = llm.add_usage(usage, event["data"]["output"])
+                else:
+                    await _tool_event(event, on_tool_start, on_tool_end)
         if not streamed:
             state = await graph.aget_state(run_config)
             final_text = _last_ai_text(state.values.get("messages", []))
@@ -270,6 +293,23 @@ async def run_turn(  # pylint: disable=too-many-arguments
         raise asyncio.CancelledError() from exc
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return await _provider_error_message(exc, llm_config, chat_model)
+
+
+async def _tool_event(
+    event: Any, on_tool_start: ToolStart | None, on_tool_end: ToolEnd | None
+) -> None:
+    """Pass a tool start / end / error stream event to its callback; ignore others."""
+    kind = event["event"]
+    data = event["data"]
+    if kind == "on_tool_start" and on_tool_start is not None:
+        await on_tool_start(event["run_id"], event["name"], data.get("input") or {})
+    elif kind == "on_tool_end" and on_tool_end is not None:
+        output = data.get("output")
+        await on_tool_end(event["run_id"], str(getattr(output, "content", output)))
+    # A raising tool emits on_tool_error, not on_tool_end, even with
+    # handle_tool_errors=True: the ToolNode builds the error ToolMessage afterwards.
+    elif kind == "on_tool_error" and on_tool_end is not None:
+        await on_tool_end(event["run_id"], str(data.get("error")))
 
 
 async def _provider_error_message(

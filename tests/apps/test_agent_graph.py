@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agent_workbench.apps import agent
@@ -66,6 +66,35 @@ async def test_unknown_tool_call_routes_to_tool_node() -> None:
     assert isinstance(tool_message, ToolMessage)
     assert tool_message.status == "error"
     assert tool_message.tool_call_id == "call-1"
+    assert messages[-1].content == "done"
+    assert model.invoke_count == 2
+
+
+def _fail(text: str) -> str:
+    """Raise ``ValueError("boom")``."""
+    raise ValueError("boom")
+
+
+async def test_tool_exception_becomes_error_message() -> None:
+    fail = StructuredTool.from_function(_fail, name="fail")
+
+    def script(n: int) -> AIMessage:
+        if n == 1:
+            call = {"name": "fail", "args": {"text": "x"}, "id": "call-1"}
+            return AIMessage(content="", tool_calls=[call])
+        return AIMessage(content="done")
+
+    model = make_scripted_chat_model(script, "fake")
+    graph = agent.build_graph(model, [fail], InMemorySaver())
+    config = {"configurable": {"thread_id": "t1"}}
+    result = await graph.ainvoke({"messages": [HumanMessage("hi")]}, config)
+
+    messages = result["messages"]
+    assert [m.type for m in messages] == ["human", "ai", "tool", "ai"]
+    tool_message = messages[2]
+    assert isinstance(tool_message, ToolMessage)
+    assert tool_message.status == "error"
+    assert "boom" in str(tool_message.content)
     assert messages[-1].content == "done"
     assert model.invoke_count == 2
 

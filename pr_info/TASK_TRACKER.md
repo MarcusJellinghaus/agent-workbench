@@ -52,9 +52,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 7: Tool errors, tool callbacks and inactivity pause - [step_7.md](./steps/step_7.md)
-- [ ] Implementation: `handle_tool_errors=True` in `build_graph`, `on_tool_start` / `on_tool_end` callbacks and idle-timer pause in `run_turn`, tests
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `handle_tool_errors=True` in `build_graph`, `on_tool_start` / `on_tool_end` callbacks and idle-timer pause in `run_turn`, tests
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 8: Remove the hard-coded tool packages - [step_8.md](./steps/step_8.md)
 - [ ] Implementation: revert the tool-package mypy override, remove `SIBLING_LOGGERS` and its clamp loop, remove `TOOL_KEYS` / `REQUIRED_TOOL_KEYS` / `tool_path` and the key checks (`tools_config_problems` → shape only), adjust tests
