@@ -5,12 +5,12 @@ Read `pr_info/steps/summary.md`, `pr_info/steps/Decisions.md` and this file
 (`pr_info/steps/step_9.md`), then implement this step only. Reference: mcp_coder
 `src/mcp_coder/utils/toolkit_runner.py` (`ENTRY_POINT_GROUP`, `_toolkit_class`) and
 `tests/utils/test_toolkit_runner.py` (patching `entry_points`); mcp-coder-utils
-`mcp_coder_utils.toolset` (`ToolsetProvider`, `Toolset`, `StaticToolset`; use
+`mcp_coder_utils.tool_provider` (`ToolsetProvider`, `Toolset`, `StaticToolset`; use
 `get_library_source`). TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`),
 mypy, lint-imports, deptry (`run_deptry_check`) and `tools/check_no_url_deps.py` (read it
 first for its invocation); all must pass. One commit.
 
-**Precondition:** `get_library_source("mcp_coder_utils.toolset.ToolsetProvider")` returns
+**Precondition:** `get_library_source("mcp_coder_utils.tool_provider.ToolsetProvider")` returns
 source (MarcusJellinghaus/mcp-coder-utils#61). If not found, write one line to
 `pr_info/.blocked.txt` naming the missing module and stop. The tool packages
 (`mcp_tools_sql`, `mcp_workspace`) are **not** needed: unit tests use a fake provider.
