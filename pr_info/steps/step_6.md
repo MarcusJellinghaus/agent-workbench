@@ -5,7 +5,9 @@ Read `pr_info/steps/summary.md` and this file (`pr_info/steps/step_6.md`), then 
 this step only. Reference: mcp-tools-sql `src/mcp_tools_sql/toolset.py` and
 `tests/test_toolset.py` (`_write_configs`), mcp-workspace `mcp_workspace.toolset.tool_specs`
 (use `get_library_source`). TDD: tests first. Run pylint, pytest
-(`-n auto -m "not integration"`), mypy and lint-imports; all must pass. One commit.
+(`-n auto -m "not integration"`), mypy, lint-imports, deptry (`run_deptry_check`) and
+`tools/check_no_url_deps.py` (read it first for its invocation); all must pass. One
+commit.
 
 **Precondition:** `get_library_source("mcp_tools_sql.toolset.build_toolset")` and
 `get_library_source("mcp_workspace.toolset.tool_specs")` both return source. If either is
@@ -14,6 +16,7 @@ not found, write one line to `pr_info/.blocked.txt` naming the missing module an
 ## WHERE
 - `src/agent_workbench/adapters/tools.py`
 - `.importlinter`
+- `pyproject.toml`
 - new `tests/adapters/tool_fixtures.py`
 - `tests/adapters/test_tools.py`
 
@@ -47,6 +50,23 @@ def build_toolsets(config_file: ConfigFile) -> Toolsets:
 - `.importlinter`: two `forbidden` contracts in the style of `httpx_isolation`:
   `mcp_tools_sql only in adapters`, `mcp_workspace only in adapters`
   (`ignore_imports = agent_workbench.adapters.** -> <pkg>`).
+- `pyproject.toml` (in this step, not earlier: before the first `src` import deptry
+  reports the extras as unused, DEP002):
+  1. New extras in `[project.optional-dependencies]` (after the LangChain extras, with a
+     `# Tool packages (#17), imported only when configured` comment):
+     ```toml
+     sql = ["mcp-tools-sql"]
+     sql-mssql = ["mcp-tools-sql[mssql]"]
+     workspace = ["mcp-workspace"]
+     ```
+     No version floors – #20 adds them once the siblings are released.
+  2. `dev`: `"agent-workbench[typecheck,coverage,langchain,sql,workspace]"`. Keep the
+     `mcp-workspace` line (Claude Code MCP server) and its comment. Update the deptry
+     comment: it names the self-referenced extras deptry does not expand.
+  3. `[tool.mcp-coder.install-from-github] packages` gains
+     `"mcp-tools-sql @ git+https://github.com/MarcusJellinghaus/mcp-tools-sql.git"`
+     (with deps, next to `mcp-workspace`). No URL in `[project]` dependencies
+     (`tools/check_no_url_deps.py`).
 
 ## ALGORITHM
 ```

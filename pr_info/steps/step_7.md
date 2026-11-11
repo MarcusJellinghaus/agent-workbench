@@ -6,6 +6,10 @@ this step only. Pattern for the hand-written JSONL writer: mcp_coder
 `src/mcp_coder/icoder/core/event_log.py` (reference project `mcp_coder`) – but open, append
 and close per write. TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`),
 mypy and lint-imports; all must pass. One commit.
+The hand-written JSONL writer is the one documented exception to "all logging via
+`mcp_coder_utils.log_utils`"; app-log messages (e.g. a failed write) still go through
+the standard `logging` module. If this step needs anything else `log_utils` cannot do,
+stop and report instead of working around it.
 
 ## WHERE
 - new `src/agent_workbench/services/tool_call_log.py` (no `langchain_core`)

@@ -42,7 +42,9 @@ def build_tools(toolsets: Toolsets) -> list[Any]:
   filtered before adapting, so non-enabled tools are never bound.
 - `get_runtime`: `config_file = config.read_config_file()`;
   `llm_config = load_llm_config(config_file)`;
-  `toolsets = build_toolsets(config_file) if config_file.tools else None`; then the
+  `toolsets = build_toolsets(config_file) if config_file.tools or
+  config_file.tools_type_error else None` (a non-table `[tools]` reaches
+  `build_toolsets` and raises – no silent run without tools); then the
   checkpointer and the graph with `build_tools(toolsets) if toolsets else []`. Close what
   was opened if a later step fails.
 - `close_runtime`: close the checkpointer connection in `try`, the toolsets in `finally`.
@@ -51,7 +53,11 @@ def build_tools(toolsets: Toolsets) -> list[Any]:
 ```
 toolsets = saver = None
 try:
-    toolsets = build_toolsets(config_file) if config_file.tools else None
+    toolsets = (
+        build_toolsets(config_file)
+        if config_file.tools or config_file.tools_type_error
+        else None
+    )
     saver = await open_checkpointer(...)
     graph = build_graph(chat_model, build_tools(toolsets) if toolsets else [], saver)
 except BaseException:
@@ -72,6 +78,8 @@ except BaseException:
     `run_turn` with recording `on_tool_start` / `on_tool_end`. Assert: `customers` in the
     `read_tables` result, `report.md` written in the workspace, two lines in
     `tmp_path/logs/tool_calls.jsonl` with `outcome == "ok"`, both callbacks fired twice.
+    The Chainlit tool step part of this acceptance criterion is covered in step 10
+    (real `run_turn` with real tools feeding `ToolSteps`).
   - **only hard-coded tools bound**: `get_runtime` with `config_file.tools` set
     (write `tmp_path/config.toml`), `load_llm_config` / `create_chat_model` patched,
     `bind_tools` spied → bound names == `{read_schemas, read_tables, read_columns,
@@ -82,10 +90,13 @@ except BaseException:
   - `close_runtime` closes the SQL toolset; and still closes it when
     `checkpointer.conn.close` raises (the error propagates).
   - no `[tools]` → `Runtime.toolsets is None`, graph built with no tools.
+  - non-table `[tools]` (`tools = "x"` in `tmp_path/config.toml`) → `get_runtime` raises
+    `ValueError` and the checkpointer is not left open.
 - `tests/test_tool_path_no_mcp.py` (top level: it spans adapters and services): a script
   run with `sys.executable` in a subprocess
   (`subprocess.run([...], capture_output=True, text=True, timeout=120, check=False)  # noqa: S603`;
-  `env` with `PYTHONPATH=src`) that imports only `agent_workbench.adapters.config`,
+  `env={**os.environ, "PYTHONPATH": "src"}` – not a fresh dict: Windows needs
+  `SYSTEMROOT` and the rest of the environment) that imports only `agent_workbench.adapters.config`,
   `agent_workbench.adapters.tools`, `agent_workbench.services.tool_call_log`,
   `agent_workbench.services.tool_filter` and both tool packages – never
   `agent_workbench.apps` – points `config.app_data_dir` at the temp folder, builds the

@@ -105,12 +105,13 @@ apps.ui_handlers       → cl.Step(type="tool") per call, open steps closed in f
 `tach.toml`, `core/` – no change.
 
 ## Steps
-1. Dependencies and extras (`pyproject.toml`)
+1. mypy overrides for the tool packages (`pyproject.toml`)
 2. `mcp_coder_utils` shims and tightened import contract
 3. App log for the UI and clamped sibling loggers
 4. `[tools]` config reading and validation
 5. Result helper and `ToolSpec` → `StructuredTool` adapter
-6. Toolset building with lazy package imports
+6. Toolset building with lazy package imports (plus the `[sql]` / `[sql-mssql]` /
+   `[workspace]` extras)
 7. Tool-call log and `wrap_spec`
 8. Tool errors, tool callbacks and inactivity pause in the graph / `run_turn`
 9. Runtime wiring, tool filter, agent-loop and `mcp` subprocess tests

@@ -37,7 +37,7 @@ def _check_toolsets() -> str | None:
 ## ALGORITHM
 ```
 config_file = adapters_config.read_config_file()
-if not config_file.tools: return None
+if not config_file.tools and not config_file.tools_type_error: return None   # a non-table [tools] reaches build_toolsets and fails
 try: tools.build_toolsets(config_file).close()
 except Exception as exc: return f"{type(exc).__name__}: {exc}"
 return None
@@ -49,6 +49,8 @@ return None
   `_run_chainlit` not called.
 - no `[tools]` table → `build_toolsets` (patched) not called, Chainlit started
   (do not rely on `sys.modules`: unreliable under xdist).
+- `tools = "x"` (not a table), real `build_toolsets` → `main([]) == 1`, `_run_chainlit`
+  not called.
 - `[tools]` present, build succeeds → the returned object's `close()` called once, Chainlit
   started.
 

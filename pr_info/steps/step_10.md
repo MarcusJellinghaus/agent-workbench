@@ -57,6 +57,14 @@ close_all: for run_id in list(open): try: await end(run_id, "") except Exception
   `CancelledError` still propagates.
 - step open and `run_turn` returns an error message → step closed, error message sent.
 - `update` raising in `close_all` → logged, `_finish_turn` still runs.
+- end to end (issue acceptance criterion, agent-loop part in step 9): patch
+  `agent_workbench.adapters.config.app_data_dir` → `tmp_path`; real `Toolsets` from
+  `tests/adapters/tool_fixtures.py` (temp `database_config`) → `build_tools` →
+  `build_graph` (`InMemorySaver`) with the scripted model calling `read_tables(schema="main")`, then
+  answering "done"; the real `run_turn` with `on_tool_start=steps.start`,
+  `on_tool_end=steps.end` of a `ToolSteps` (under `fake_cl`) → one step with
+  `type="tool"` and name `read_tables`, sent once, output contains `customers`, updated
+  once, none left open.
 
 ## DATA
 `ToolSteps._open: dict[str, cl.Step]`.

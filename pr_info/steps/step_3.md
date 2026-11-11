@@ -6,6 +6,9 @@ Read `pr_info/steps/summary.md` (section "Logging strategy") and this file
 `src/mcp_tools_sql/main.py` (`_resolve_log_file`, `setup_logging(log_level, log_file,
 console_level=...)`; reference project `mcp-tools-sql`). TDD: tests first. Run pylint,
 pytest (`-n auto -m "not integration"`) and mypy; all must pass. One commit.
+All logging goes through `mcp_coder_utils.log_utils` (via the `logging_setup` shim): if
+this step needs something `log_utils` cannot do, stop and report instead of working
+around it (the tool-call JSONL writer of step 7 is the only documented exception).
 
 ## WHERE
 - `src/agent_workbench/services/logging_setup.py`
