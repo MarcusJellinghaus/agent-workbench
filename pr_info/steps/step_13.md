@@ -1,75 +1,95 @@
-# Step 13 – Documentation
+# Step 13 – `verify` TOOLS section with the providers' rows
 
 ## LLM prompt
-Read `pr_info/steps/summary.md`, this file (`pr_info/steps/step_13.md`) and the "Docs"
-bullets of issue #17 (`github_issue_view(17)`), then update the three documents. Keep the
-existing style: short sentences, no filler. Docs only; run pytest
-(`-n auto -m "not integration"`) to confirm nothing broke. One commit.
+Read `pr_info/steps/summary.md` and this file (`pr_info/steps/step_13.md`), then implement
+this step only. Follow `verify_config` and `format_config_section`. TDD: tests first. Run
+pylint, pytest (`-n auto -m "not integration"`) and mypy; all must pass. One commit.
+This step also covers #27 (folded into #17): provider rows are rendered without
+tool-specific logic.
 
 ## WHERE
-- `README.md`
-- `docs/architecture/architecture.md`
-- `docs/security/security_design.md`
+- `src/agent_workbench/services/verify.py`
+- `src/agent_workbench/interfaces/verify_formatting.py`
+- `src/agent_workbench/apps/ui_launcher.py` (`run_verify` call)
+- `tests/services/test_verify.py`, `tests/interfaces/test_verify_formatting.py`,
+  `tests/apps/test_ui_launcher.py`
 
 ## WHAT
+```python
+# services/verify.py
+def verify_tools(
+    config_file: ConfigFile, *, connect: bool
+) -> tuple[list[dict[str, str]], bool]:
+    """Check ``[tools]``: shape, provider registered, then the provider's own ``verify`` rows.
 
-### README.md
-- Status line and `agent-workbench-ui` intro: drop "no tools yet"; name the default tools
-  (SQL schema tools and `validate_sql`, workspace read / write).
-- Setup: extras `[sql]`, `[sql-mssql]` (SQL Server driver), `[workspace]`.
-- Configuration: example
-  ```toml
-  [tools.sql]
-  query_config = "C:/Users/me/.mcp-tools-sql/queries.toml"   # mcp-tools-sql query config
-  # database_config = "..."                                  # optional; package default
-  [tools.workspace]
-  project_dir = "C:/Users/me/work/reports"
-  ```
-  Absolute paths only (`~` allowed); no `[tools]` table → no tools; unknown keys warn.
-  "Keep the mcp-tools-sql query config outside the workspace – the model can write
-  files there."
-- `verify`: "Sections:" line gains TOOLS; exit-code line: also 1 on a TOOLS error.
-- `agent-workbench-ui`: "Start:" bullet – after `verify`, the configured toolsets are built
-  once and closed; a build error stops the start. "Limits per turn" bullet – the 300 s
-  inactivity timer pauses while tools run; 3600 s overall still applies. `--log-level`
-  bullet – default `INFO`; app log `%USERPROFILE%\.agent_workbench\logs\agent_workbench_ui_<timestamp>.log`,
-  console at `OUTPUT`. Tool-call log `logs\tool_calls.jsonl`. Tool calls appear as steps
-  with arguments and a truncated result.
+    No tool-specific checks: rows come from ``ToolsetProvider.verify(connect=connect)``.
 
-### docs/architecture/architecture.md
-- §3: "Configuration … and the user app-data folder lie outside the workspace folder" →
-  "by configuration, not enforced – known gap".
-- §5 building-block table: `services` – tool filter, tool-call logging (no toolset
-  building); `adapters` – toolset building (called from `apps`), spec → LangChain tool,
-  lazy loading, `mcp_coder_utils` shims; Status column updated (tools in the agent).
-- §5 per-layer table: `services` reaches `mcp-coder-utils` only via `logging_setup`;
-  redaction / tool contract / app-data dir via the `adapters` shims.
-- §6 "Logging and retention": logging strategy (all logging via `log_utils` /
-  `redaction` through shims; `mcp_coder_utils_isolation` lists the four shim modules;
-  UI-only app-log file per run; `mcp_workspace` / `mcp_tools_sql` loggers clamped to
-  `INFO` because their DEBUG logs parameters and results unredacted – their INFO / ERROR
-  lines still contain file paths and error texts); the tool-call log as the one
-  hand-written JSONL exception (fields, 200-char truncation, key-substring redaction,
-  over-redaction accepted, secrets in free text not detected, calls failing before `fn`
-  runs not logged until #18, errors returned as text log as `ok`).
-- §6 "Limits": inactivity wording – 300 s without a stream event, paused while tools run.
+    Returns:
+        TOOLS rows (``{"label", "status", "value"}``) and whether any is an error.
+    """
 
-### docs/security/security_design.md
-- §4.3 workspace-guard bullet and threat rows 5 and 9 → "Workspace guard: planned in
-  mcp-workspace, not implemented – known gap"; row 5 drops "`verify` reports it". Add the
-  query-config gap: an mcp-tools-sql query config inside the workspace (e.g. a
-  `pyproject.toml` with `[tool.mcp-tools-sql]`) is writable by the model.
-- §5 "Both stores lie outside the workspace folder" → "by configuration, not enforced –
-  known gap".
-- §4.5: secrets in tool-call log lines are redacted by the `services` redactor (recursive,
-  case-insensitive key substrings of `SENSITIVE_KEY_PATTERNS`).
-- §4.6: inactivity wording as in architecture §6.
-- §5 retention table: rows for the app log (`<app-data>/logs/agent_workbench_ui_*.log`)
-  and `tool_calls.jsonl` – no retention (kept until deleted); may contain parameter data.
-  Tool steps (arguments, truncated results) are persisted in `chainlit.sqlite`.
-- `handle_tool_errors=True` sends the exception text of a failed tool to the provider
-  (§3 data sent to the provider).
-- Link "Logging and retention" in `architecture.md` §6 from §5.
+@dataclass
+class VerifyReport:
+    ...                                              # existing fields unchanged
+    tools_entries: list[dict[str, str]] = field(default_factory=list)
+    tools_has_error: bool = False
 
-## HOW / ALGORITHM / DATA
-n/a – documentation only.
+def run_verify(check_models: bool = False, *, connect_tools: bool = True) -> VerifyReport: ...
+
+def compute_exit_code(
+    config_has_error: bool, overall_ok: bool, test_prompt_ok: bool, tools_has_error: bool = False
+) -> int: ...
+```
+
+## HOW
+- Provider lookup: `toolset_providers.provider_class(name)` (step 9); its `ValueError`
+  message (registered names + install hint) becomes the error row.
+- Provider rows: `cls(table).verify(connect=connect)` → one row per `VerifyItem`:
+  `label = f"[tools.{name}]"`, `status = item.status` (`ok` / `warning` / `error`),
+  `value = f"{item.name}: {item.message}"` plus `f" – {item.hint}"` when set. A provider
+  `verify` raising (the contract says it doesn't) → one error row
+  `"verify failed: <type>: <message>"`.
+- `run_verify(connect_tools=...)` calls `verify_tools(config_file, connect=connect_tools)`
+  after `verify_config` and fills the two fields; TOOLS errors make the exit code 1, so
+  `agent-workbench-ui` stops at its existing `run_verify` gate.
+- `agent-workbench verify` (`interfaces/cli.py`) keeps the default `connect_tools=True`;
+  `ui_launcher.main` calls `run_verify(connect_tools=False)`: a database that is down must
+  not block the UI start.
+- `format_report`: after the CONFIG section, `pad("TOOLS")` +
+  `format_config_section(report.tools_entries)` (reuse; `[tools.<name>]` labels group rows).
+
+## ALGORITHM
+```
+if config_file.parse_error: return [row("[tools]", "info", "not checked – invalid config file")], False
+if not config_file.tools and not config_file.tools_type_error: return [row("[tools]", "info", "not configured")], False
+rows = [row(label, status, msg) for label, status, msg in tools_config_problems(config_file)]
+for name, table in config_file.tools.items() if isinstance(table, dict):
+    try: cls = provider_class(name)
+    except ValueError as exc: rows.append(row(f"[tools.{name}]", "error", str(exc))); continue
+    try: items = cls(table).verify(connect=connect)
+    except Exception as exc: rows.append(row(..., "error", f"verify failed: ...")); continue
+    rows += [row from item for item in items]
+return rows, any(r["status"] == "error" for r in rows)
+```
+
+## Tests
+- `test_verify.py` (fake providers from `tests/adapters/tool_fixtures.py`; write TOML to
+  the existing `config_path` fixture's file):
+  - no `[tools]` → one info row "not configured", no error, no provider loaded.
+  - `[tools.fake]` whose fake provider returns an `ok`, a `warning` and an `error` row →
+    three rows with those statuses and `name: message – hint` values;
+    `run_verify().exit_code == 1` with the LLM provider and test prompt passing.
+  - unregistered `[tools.x]` → error row naming the registered providers.
+  - `connect` passed through: `run_verify()` → the fake provider saw `connect=True`;
+    `run_verify(connect_tools=False)` → `connect=False`.
+  - provider `verify` raising → one error row.
+  - subtable not a table → error row.
+  - `[llm]` broken and `[tools]` valid → TOOLS rows still present.
+  - `compute_exit_code(False, True, True, tools_has_error=True) == 1`.
+- `test_verify_formatting.py`: the report contains `=== TOOLS` after CONFIG, rows grouped
+  under `[tools.fake]` with `[OK]` / `[ERR]` / `[WARN]` markers.
+- `test_ui_launcher.py`: `run_verify` called with `connect_tools=False`.
+
+## DATA
+TOOLS row: `{"label": "[tools.sql]", "status": "error", "value": "config.query_config:
+relative path not allowed – use an absolute path"}`.

@@ -6,6 +6,11 @@ this step only. Follow the existing `[llm]` handling in `adapters/config.py` and
 `services/verify.py`. TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`)
 and mypy; all must pass. One commit.
 
+> **Superseded in part by step 8 (plugin model):** `ConfigFile.tools` /
+> `tools_type_error` and the `[llm]`-independent reading stay. `TOOL_KEYS`,
+> `REQUIRED_TOOL_KEYS`, `tool_path` and the key / path checks are removed in step 8: keys
+> belong to each toolset provider.
+
 ## WHERE
 - `src/agent_workbench/adapters/config.py`
 - `tests/adapters/test_config.py`

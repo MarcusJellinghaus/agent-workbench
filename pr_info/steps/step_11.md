@@ -1,58 +1,69 @@
-# Step 11 – Launcher gate: build and close the toolsets before Chainlit
+# Step 11 – Chainlit tool steps
 
 ## LLM prompt
 Read `pr_info/steps/summary.md` and this file (`pr_info/steps/step_11.md`), then implement
-this step only. TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`) and
-mypy; all must pass. One commit.
+this step only. Read `chainlit.step.Step` (`get_library_source`) for `send`, `update`,
+`start` / `end` and `utc_now`. TDD: tests first. Run pylint, pytest
+(`-n auto -m "not integration"`) and mypy; all must pass. One commit.
 
 ## WHERE
-- `src/agent_workbench/apps/ui_launcher.py`
-- `tests/apps/test_ui_launcher.py`
+- `src/agent_workbench/apps/ui_handlers.py`
+- `tests/apps/test_ui_handlers.py`
 
 ## WHAT
 ```python
-def _check_toolsets() -> str | None:
-    """Build the configured toolsets once and close them; return the error text or None.
+TOOL_OUTPUT_CHARS = 2000  # characters of a tool result shown in its step
 
-    ``get_runtime`` runs only after Chainlit has started, so a broken tool setup must
-    stop the launcher here. Cheap: SQL backends connect lazily, ``tool_specs`` has no
-    side effects. Not called without a ``[tools]`` table.
-    """
+class ToolSteps:
+    """The open ``cl.Step(type="tool")`` objects of one turn, by run id."""
+
+    async def start(self, run_id: str, name: str, args: dict[str, Any]) -> None:
+        """Open and send a tool step showing *args*."""
+
+    async def end(self, run_id: str, output: str) -> None:
+        """Set the truncated *output* and close the step (unknown run id: no-op)."""
+
+    async def close_all(self) -> None:
+        """Close every step still open; logs, never raises."""
 ```
 
 ## HOW
-- In `main`, after the `run_verify` gate and before `prepare_chainlit_env`:
-  ```python
-  error = _check_toolsets()
-  if error:
-      print(f"Building the tools failed: {error}", file=sys.stderr)
-      return 1
-  ```
-- Imports inside the function (module must not import Chainlit or tool packages at load):
-  `from agent_workbench.adapters import config as adapters_config`,
-  `from agent_workbench.adapters import tools`; call `tools.build_toolsets(...)` through
-  the module attribute so tests can patch `agent_workbench.adapters.tools.build_toolsets`.
-- Update `main`'s docstring (dependency check, `verify`, toolset build, then Chainlit).
+- `run_turn` stays free of Chainlit (rule in this module's docstring); `on_message`
+  creates `steps = ToolSteps()` and passes `on_tool_start=steps.start`,
+  `on_tool_end=steps.end` to `run_turn`.
+- `on_message`'s `finally`: `await steps.close_all()` before `_finish_turn` – covers turn
+  end, error and Stop (a failed tool may emit no end event).
+- Step: `cl.Step(name=name, type="tool")`, `step.input = args`, `step.start = utc_now()`,
+  `await step.send()`. End: `step.output = truncate_text(output, TOOL_OUTPUT_CHARS)`
+  (from `agent_workbench.services.tool_call_log`), `step.end = utc_now()`,
+  `await step.update()`. Steps are persisted by the data layer in `chainlit.sqlite`.
+- Not `cl.LangchainCallbackHandler` (adds its own LLM steps and streaming).
+- The existing handler tests fake `run_turn(*args)`; give the fakes `**kwargs`.
 
 ## ALGORITHM
 ```
-config_file = adapters_config.read_config_file()
-if not config_file.tools and not config_file.tools_type_error: return None   # a non-table [tools] reaches build_toolsets and fails
-try: tools.build_toolsets(config_file).close()
-except Exception as exc: return f"{type(exc).__name__}: {exc}"
-return None
+start: step = cl.Step(name, type="tool"); step.input = args; step.start = utc_now(); await step.send(); open[run_id] = step
+end:   step = open.pop(run_id, None); if step: step.output = truncate_text(output, N); step.end = utc_now(); await step.update()
+close_all: for run_id in list(open): try: await end(run_id, "") except Exception: logger.exception(...)
 ```
 
-## Tests (`tests/apps/test_ui_launcher.py`, existing autouse fixture; `run_verify` patched to exit 0)
-- `[tools]` in `tmp_path/config.toml`, `build_toolsets` patched to raise
-  `ValueError("duplicate tool name 'x'")` → `main([]) == 1`, message on stderr,
-  `_run_chainlit` not called.
-- no `[tools]` table → `build_toolsets` (patched) not called, Chainlit started
-  (do not rely on `sys.modules`: unreliable under xdist).
-- `tools = "x"` (not a table), real `build_toolsets` → `main([]) == 1`, `_run_chainlit`
-  not called.
-- `[tools]` present, build succeeds → the returned object's `close()` called once, Chainlit
-  started.
+## Tests (`tests/apps/test_ui_handlers.py`, `fake_cl` fixture: make `cl.Step` return a
+`MagicMock` with `AsyncMock` `send` / `update`, recorded in a list)
+- fake `run_turn` calls `on_tool_start("r1", "read_tables", {"schema": "main"})` and
+  `on_tool_end("r1", "x" * 5000)` → one step, `type="tool"`, input set, sent once,
+  output truncated to `TOOL_OUTPUT_CHARS` with length note, updated once.
+- step started but not ended, turn returns → closed in `finally` (updated once).
+- step open and the turn raises `asyncio.CancelledError` (Stop) → step closed,
+  `CancelledError` still propagates.
+- step open and `run_turn` returns an error message → step closed, error message sent.
+- `update` raising in `close_all` → logged, `_finish_turn` still runs.
+- end to end (issue acceptance criterion, agent-loop part in step 10): patch
+  `agent_workbench.adapters.config.app_data_dir` → `tmp_path`; `Toolsets` from a fake
+  provider (`tests/adapters/tool_fixtures.py`) → `build_tools` → `build_graph`
+  (`InMemorySaver`) with the scripted model calling the fake `echo` tool, then answering
+  "done"; the real `run_turn` with `on_tool_start=steps.start`, `on_tool_end=steps.end` of
+  a `ToolSteps` (under `fake_cl`) → one step with `type="tool"` and name `echo`, sent once,
+  output contains the echoed text, updated once, none left open.
 
 ## DATA
-`_check_toolsets` → `str | None`.
+`ToolSteps._open: dict[str, cl.Step]`.

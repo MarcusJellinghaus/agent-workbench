@@ -8,7 +8,10 @@ console_level=...)`; reference project `mcp-tools-sql`). TDD: tests first. Run p
 pytest (`-n auto -m "not integration"`) and mypy; all must pass. One commit.
 All logging goes through `mcp_coder_utils.log_utils` (via the `logging_setup` shim): if
 this step needs something `log_utils` cannot do, stop and report instead of working
-around it (the tool-call JSONL writer of step 7 is the only documented exception).
+around it (the tool-call JSONL writer of step 6 is the only documented exception).
+
+> **Superseded in part by step 8 (plugin model):** the hard-coded `SIBLING_LOGGERS` clamp
+> is removed there; step 10 clamps the configured providers' package loggers instead.
 
 ## WHERE
 - `src/agent_workbench/services/logging_setup.py`

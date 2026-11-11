@@ -23,6 +23,10 @@ and the `install-from-github` entry come with the first `src` import of the tool
 (step 6): before that, deptry reports the new extras as unused (DEP002) and the CI
 `deptry` job fails.
 
+> **Superseded by steps 8 and 9 (plugin model):** `src` never imports the tool packages,
+> so step 8 removes this override again. Step 9 adds the extras as install shortcuts
+> (DEP002 ignore); no `dev` or `install-from-github` entry for `mcp-tools-sql`.
+
 ## Tests
 None new – configuration only. Existing checks must pass.
 

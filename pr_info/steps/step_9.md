@@ -1,108 +1,140 @@
-# Step 9 – Runtime wiring, tool filter, agent-loop and `mcp` subprocess tests
+# Step 9 – Toolset providers: entry-point discovery and `build_toolsets`
 
 ## LLM prompt
-Read `pr_info/steps/summary.md` and this file (`pr_info/steps/step_9.md`), then implement
-this step only. Reference for the subprocess test: mcp-tools-sql
-`tests/test_module_imports.py::test_toolset_does_not_import_mcp`. TDD: tests first. Run
-pylint, pytest (`-n auto -m "not integration"`), mypy, lint-imports and tach; all must
-pass. One commit.
+Read `pr_info/steps/summary.md`, `pr_info/steps/Decisions.md` and this file
+(`pr_info/steps/step_9.md`), then implement this step only. Reference: mcp_coder
+`src/mcp_coder/utils/toolkit_runner.py` (`ENTRY_POINT_GROUP`, `_toolkit_class`) and
+`tests/utils/test_toolkit_runner.py` (patching `entry_points`); mcp-coder-utils
+`mcp_coder_utils.toolset` (`ToolsetProvider`, `Toolset`, `StaticToolset`; use
+`get_library_source`). TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`),
+mypy, lint-imports, deptry (`run_deptry_check`) and `tools/check_no_url_deps.py` (read it
+first for its invocation); all must pass. One commit.
+
+**Precondition:** `get_library_source("mcp_coder_utils.toolset.ToolsetProvider")` returns
+source (MarcusJellinghaus/mcp-coder-utils#61). If not found, write one line to
+`pr_info/.blocked.txt` naming the missing module and stop. The tool packages
+(`mcp_tools_sql`, `mcp_workspace`) are **not** needed: unit tests use a fake provider.
 
 ## WHERE
-- new `src/agent_workbench/services/tool_filter.py`
-- `src/agent_workbench/apps/agent.py` (`Runtime`, `build_tools`, `get_runtime`, `close_runtime`)
-- new `tests/services/test_tool_filter.py`
-- new `tests/apps/test_agent_tools.py`
-- new `tests/test_tool_path_no_mcp.py`
-- `tests/apps/test_agent_graph.py` / `test_agent_checkpointer.py` (runtime tests, if needed)
+- `src/agent_workbench/adapters/tool_spec.py` (shim: re-export the provider contract)
+- new `src/agent_workbench/adapters/toolset_providers.py` (discovery; no `langchain_core`)
+- `src/agent_workbench/adapters/tools.py` (`Toolsets`, `build_toolsets`; module docstring)
+- `.importlinter`
+- `pyproject.toml`
+- new `tests/adapters/tool_fixtures.py`
+- new `tests/adapters/test_toolset_providers.py`, `tests/adapters/test_tools.py`,
+  `tests/adapters/test_shims.py`
 
 ## WHAT
 ```python
-# services/tool_filter.py
-ENABLED_GROUPS: frozenset[str] = frozenset({"sql.schema", "workspace.read", "workspace.write"})
-ENABLED_TOOLS: frozenset[str] = frozenset({"validate_sql"})  # its group also holds `verify`
+# adapters/toolset_providers.py
+ENTRY_POINT_GROUP = "agent_workbench.toolsets"
 
-def enabled_specs(specs: Iterable["ToolSpec"]) -> tuple["ToolSpec", ...]:
-    """Return the specs offered to the model until #18's permission resolver replaces this."""
+def registered_providers() -> list[str]:
+    """Return the sorted names registered in the ``agent_workbench.toolsets`` group."""
 
-# apps/agent.py
+def provider_class(name: str) -> type["ToolsetProvider"]:
+    """Load the provider registered as *name*.
+
+    Raises:
+        ValueError: No entry point has the name (message lists the registered names and
+            says to install the package that provides toolset '<name>'), or loading it fails.
+    """
+
+def provider_packages(names: Iterable[str]) -> list[str]:
+    """Return the top-level package of each registered provider in *names*, without loading it."""
+
+# adapters/tools.py
 @dataclass(frozen=True)
-class Runtime:
-    graph: Any
-    chat_model: Any
-    llm_config: LLMConfig
-    checkpointer: Any
-    toolsets: Toolsets | None = None   # kept for #19's Reload
+class Toolsets:
+    """The tool specs of every configured provider plus the toolsets to close."""
 
-def build_tools(toolsets: Toolsets) -> list[Any]:
-    """Return the enabled specs, logged and adapted, as LangChain tools."""
+    specs: tuple["ToolSpec", ...]
+    toolsets: tuple["Toolset", ...] = ()
+
+    def close(self) -> None:
+        """Close every toolset; a failing close is logged and the rest still close."""
+
+def build_toolsets(config_file: ConfigFile) -> Toolsets:
+    """Build the toolset of every ``[tools.<name>]`` provider; close with ``Toolsets.close``.
+
+    Raises:
+        ValueError: A ``[tools]`` shape error, an unregistered provider, a provider build
+            error (``ValueError`` from ``build``) or a duplicate tool name across providers.
+    """
 ```
 
 ## HOW
-- `build_tools`: `[to_structured_tool(wrap_spec(s)) for s in enabled_specs(toolsets.specs)]` –
-  filtered before adapting, so non-enabled tools are never bound.
-- `get_runtime`: `config_file = config.read_config_file()`;
-  `llm_config = load_llm_config(config_file)`;
-  `toolsets = build_toolsets(config_file) if config_file.tools or
-  config_file.tools_type_error else None` (a non-table `[tools]` reaches
-  `build_toolsets` and raises – no silent run without tools); then the
-  checkpointer and the graph with `build_tools(toolsets) if toolsets else []`. Close what
-  was opened if a later step fails.
-- `close_runtime`: close the checkpointer connection in `try`, the toolsets in `finally`.
+- Discovery uses `from importlib.metadata import entry_points` at module level (tests patch
+  `toolset_providers.entry_points`); look up by name like `_toolkit_class`.
+  `provider_packages`: `ep.value.split(":")[0].split(".")[0]`.
+- `ToolsetProvider` / `Toolset` / `ToolSpec` / `ToolCollector`: from the
+  `adapters.tool_spec` shim; in `src` only under `TYPE_CHECKING` or imported inside
+  functions (core `mcp-coder-utils` floor has neither). Extend the shim to re-export
+  `ToolsetProvider`, `Toolset`, `StaticToolset`.
+- No module in `agent_workbench` imports a tool package. `.importlinter`: new `forbidden`
+  contract `tool_packages_isolation` (source `agent_workbench`, forbidden `mcp_tools_sql`,
+  `mcp_workspace`, no ignores). If lint-imports rejects a forbidden module that isn't
+  installed, replace the contract with a test in `tests/adapters/test_toolset_providers.py`
+  that parses every `src` module with `ast` and asserts neither package is imported, and
+  note why in the test docstring.
+- `pyproject.toml` (in this step):
+  1. Extras in `[project.optional-dependencies]` after the LangChain extras, under a
+     `# Toolset providers (#17) – install shortcuts; loaded by entry point, never imported`
+     comment:
+     ```toml
+     sql = ["mcp-tools-sql"]
+     sql-mssql = ["mcp-tools-sql[mssql]"]
+     workspace = ["mcp-workspace"]
+     ```
+     No version floors – #20 adds them once the siblings are released.
+  2. `[tool.deptry.per_rule_ignores] DEP002`: add `"mcp-tools-sql"`, `"mcp-workspace"` with
+     a comment (plugins, loaded through entry points, never imported).
+  3. `dev` and `[tool.mcp-coder.install-from-github]` unchanged (no tool package for tests;
+     `mcp-workspace` stays in `dev` only as Claude Code's MCP server).
 
 ## ALGORITHM
 ```
-toolsets = saver = None
+errors = [m for _, status, m in tools_config_problems(config_file) if status == "error"]
+if errors: raise ValueError("Invalid [tools] config: " + "; ".join(errors))
+collector = ToolCollector(); built = []
 try:
-    toolsets = (
-        build_toolsets(config_file)
-        if config_file.tools or config_file.tools_type_error
-        else None
-    )
-    saver = await open_checkpointer(...)
-    graph = build_graph(chat_model, build_tools(toolsets) if toolsets else [], saver)
+    for name, table in config_file.tools.items():
+        toolset = provider_class(name)(table).build(); built.append(toolset)
+        for spec in toolset.specs: collector.add(spec)       # duplicate name → ValueError
 except BaseException:
-    try: if saver: await saver.conn.close()
-    finally: if toolsets: toolsets.close()
-    raise
+    Toolsets((), tuple(built)).close(); raise
+return Toolsets(collector.specs, tuple(built))
 ```
 
 ## Tests
-- `test_tool_filter.py`: specs of groups `sql.schema`, `sql.validation` (`validate_sql`,
-  `verify`), `sql.profiling`, `workspace.read`, `workspace.write`, `workspace.delete` →
-  only schema, `validate_sql`, read and write remain, order kept.
-- `test_agent_tools.py` (patch `agent_workbench.adapters.config.app_data_dir` → `tmp_path`;
-  configs from `tests/adapters/tool_fixtures.py` with the temp `database_config`):
-  - **agent loop**: real `Toolsets` → `build_tools` → `build_graph` with a scripted model:
-    call 1 → tool calls `read_tables(schema="main")` and
-    `save_file(file_path="report.md", content="# Report")`; call 2 → "done". Run via
-    `run_turn` with recording `on_tool_start` / `on_tool_end`. Assert: `customers` in the
-    `read_tables` result, `report.md` written in the workspace, two lines in
-    `tmp_path/logs/tool_calls.jsonl` with `outcome == "ok"`, both callbacks fired twice.
-    The Chainlit tool step part of this acceptance criterion is covered in step 10
-    (real `run_turn` with real tools feeding `ToolSteps`).
-  - **only hard-coded tools bound**: `get_runtime` with `config_file.tools` set
-    (write `tmp_path/config.toml`), `load_llm_config` / `create_chat_model` patched,
-    `bind_tools` spied → bound names == `{read_schemas, read_tables, read_columns,
-    read_relations, validate_sql, read_file, list_directory, search_files, save_file,
-    edit_file, append_file}`; `verify`, `count_records`, `delete_this_file` absent.
-  - duplicate tool names fail `get_runtime` (patch `tool_specs` as in step 6) and the
-    checkpointer is not left open.
-  - `close_runtime` closes the SQL toolset; and still closes it when
-    `checkpointer.conn.close` raises (the error propagates).
-  - no `[tools]` → `Runtime.toolsets is None`, graph built with no tools.
-  - non-table `[tools]` (`tools = "x"` in `tmp_path/config.toml`) → `get_runtime` raises
-    `ValueError` and the checkpointer is not left open.
-- `tests/test_tool_path_no_mcp.py` (top level: it spans adapters and services): a script
-  run with `sys.executable` in a subprocess
-  (`subprocess.run([...], capture_output=True, text=True, timeout=120, check=False)  # noqa: S603`;
-  `env={**os.environ, "PYTHONPATH": "src"}` – not a fresh dict: Windows needs
-  `SYSTEMROOT` and the rest of the environment) that imports only `agent_workbench.adapters.config`,
-  `agent_workbench.adapters.tools`, `agent_workbench.services.tool_call_log`,
-  `agent_workbench.services.tool_filter` and both tool packages – never
-  `agent_workbench.apps` – points `config.app_data_dir` at the temp folder, builds the
-  toolsets from temp configs, wraps and adapts them, `asyncio.run`s `read_tables` and
-  `list_directory` through `tool.ainvoke`, and prints whether any `mcp` / `mcp.*` module
-  is in `sys.modules`. Assert return code 0 and output `False`.
+`tests/adapters/tool_fixtures.py` (plain helpers, no fixtures):
+- `FakeProvider(ToolsetProvider)`: `config["tools"]` = tool names (default `["echo"]`);
+  `build()` returns a `FakeToolset` (specs from `tool_spec` over small sync / async
+  functions, group from `config.get("group", "fake.read")`; `close()` records the call);
+  `config.get("fail")` → `build` raises `ValueError`; `verify(connect=...)` returns rows from
+  `config.get("rows", [])` and records `connect`.
+- `register_providers(monkeypatch, providers: dict[str, type])`: patches
+  `toolset_providers.entry_points` to return stub entry points (`name`, `value`
+  `"<module>:<cls>"`, `load()` returning the class), as mcp_coder's toolkit runner tests do.
+- `write_config_file(tmp_path, tables: dict[str, dict]) -> Path` writing `[tools.<name>]`
+  tables; read with `read_config_file(path)`.
+
+`test_toolset_providers.py`:
+- `registered_providers` sorted; `provider_class` loads by name; unknown name →
+  `ValueError` listing the registered names and the install hint; `load()` raising →
+  `ValueError` naming the provider.
+- `provider_packages(["a"])` → top-level package of the stub value, `load` not called.
+
+`test_tools.py` (existing adapter tests stay):
+- two fake providers → specs merged in config order; `toolsets` holds both.
+- `close()` closes both; one `close` raising → logged, the other still closed.
+- duplicate tool name across providers → `ValueError`, the first toolset closed.
+- second provider's `build` raising → `ValueError`, the first toolset closed.
+- unregistered `[tools.x]` → `ValueError` naming the registered providers.
+- `[tools]` shape error → `ValueError`, no provider loaded.
+
+`test_shims.py`: the shim re-exports `ToolsetProvider`, `Toolset`, `StaticToolset`.
 
 ## DATA
-`Runtime.toolsets: Toolsets | None`; `build_tools` → `list[StructuredTool]`.
+`Toolsets(specs=tuple[ToolSpec, ...], toolsets=tuple[Toolset, ...])`.

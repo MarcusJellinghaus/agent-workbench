@@ -46,42 +46,47 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
 - [x] Commit message prepared
 
-### Step 6: Toolset building with lazy package imports - [step_6.md](./steps/step_6.md)
-- [ ] Implementation: `Toolsets`, `build_toolsets`, `.importlinter` contracts, `[sql]` / `[sql-mssql]` / `[workspace]` extras, `dev` and install-from-github entries, `tests/adapters/tool_fixtures.py`, tests
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports, deptry, `tools/check_no_url_deps.py` — fix all issues
-- [ ] Commit message prepared
-
-### Step 7: Tool-call log and `wrap_spec` - [step_7.md](./steps/step_7.md)
+### Step 6: Tool-call log and `wrap_spec` - [step_6.md](./steps/step_6.md)
 - [ ] Implementation: `services/tool_call_log.py` (`truncate_text`, `sanitize_params`, `tool_call_log_path`, `log_tool_call`, `wrap_spec`), tests
 - [ ] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
 - [ ] Commit message prepared
 
-### Step 8: Tool errors, tool callbacks and inactivity pause - [step_8.md](./steps/step_8.md)
+### Step 7: Tool errors, tool callbacks and inactivity pause - [step_7.md](./steps/step_7.md)
 - [ ] Implementation: `handle_tool_errors=True` in `build_graph`, `on_tool_start` / `on_tool_end` callbacks and idle-timer pause in `run_turn`, tests
 - [ ] Quality checks: pylint, pytest, mypy — fix all issues
 - [ ] Commit message prepared
 
-### Step 9: Runtime wiring, tool filter, agent-loop and `mcp` subprocess tests - [step_9.md](./steps/step_9.md)
-- [ ] Implementation: `services/tool_filter.py`, `Runtime.toolsets`, `build_tools`, `get_runtime` / `close_runtime`, `test_tool_filter.py`, `test_agent_tools.py`, `tests/test_tool_path_no_mcp.py`
+### Step 8: Remove the hard-coded tool packages - [step_8.md](./steps/step_8.md)
+- [ ] Implementation: revert the tool-package mypy override, remove `SIBLING_LOGGERS` and its clamp loop, remove `TOOL_KEYS` / `REQUIRED_TOOL_KEYS` / `tool_path` and the key checks (`tools_config_problems` → shape only), adjust tests
+- [ ] Quality checks: pylint, pytest, mypy, vulture — fix all issues
+- [ ] Commit message prepared
+
+### Step 9: Toolset providers: entry-point discovery and `build_toolsets` - [step_9.md](./steps/step_9.md)
+- [ ] Implementation: `adapters/toolset_providers.py`, `Toolsets` / `build_toolsets`, shim re-exports, `tool_packages_isolation` contract, extras + DEP002 ignore, `tests/adapters/tool_fixtures.py` (fake provider), tests
+- [ ] Quality checks: pylint, pytest, mypy, lint-imports, deptry, `tools/check_no_url_deps.py` — fix all issues
+- [ ] Commit message prepared
+
+### Step 10: Runtime wiring, tool filter, logger clamp, agent-loop and `mcp` tests - [step_10.md](./steps/step_10.md)
+- [ ] Implementation: `services/tool_filter.py`, `clamp_loggers`, `Runtime.toolsets`, `build_tools`, `get_runtime` / `close_runtime`, `test_tool_filter.py`, `test_agent_tools.py` (fake provider; real providers as integration), `tests/test_tool_path_no_mcp.py` (integration)
 - [ ] Quality checks: pylint, pytest, mypy, lint-imports, tach — fix all issues
 - [ ] Commit message prepared
 
-### Step 10: Chainlit tool steps - [step_10.md](./steps/step_10.md)
-- [ ] Implementation: `ToolSteps` in `ui_handlers.py`, wiring in `on_message` and `close_all` in `finally`, tests incl. end-to-end with real tools
+### Step 11: Chainlit tool steps - [step_11.md](./steps/step_11.md)
+- [ ] Implementation: `ToolSteps` in `ui_handlers.py`, wiring in `on_message` and `close_all` in `finally`, tests incl. end-to-end with a fake provider
 - [ ] Quality checks: pylint, pytest, mypy — fix all issues
 - [ ] Commit message prepared
 
-### Step 11: Launcher gate: build and close the toolsets before Chainlit - [step_11.md](./steps/step_11.md)
-- [ ] Implementation: `_check_toolsets` and gate in `ui_launcher.main`, tests
+### Step 12: Launcher gate: build and close the toolsets before Chainlit - [step_12.md](./steps/step_12.md)
+- [ ] Implementation: `_check_toolsets` (logger clamp, build, close) and gate in `ui_launcher.main`, tests
 - [ ] Quality checks: pylint, pytest, mypy — fix all issues
 - [ ] Commit message prepared
 
-### Step 12: `verify` TOOLS section - [step_12.md](./steps/step_12.md)
-- [ ] Implementation: `verify_tools`, `VerifyReport` fields, `compute_exit_code`, TOOLS section in `verify_formatting`, tests
+### Step 13: `verify` TOOLS section with the providers' rows - [step_13.md](./steps/step_13.md)
+- [ ] Implementation: `verify_tools(connect=...)`, `run_verify(connect_tools=...)`, `VerifyReport` fields, `compute_exit_code`, TOOLS section in `verify_formatting`, launcher passes `connect_tools=False`, tests
 - [ ] Quality checks: pylint, pytest, mypy — fix all issues
 - [ ] Commit message prepared
 
-### Step 13: Documentation - [step_13.md](./steps/step_13.md)
+### Step 14: Documentation - [step_14.md](./steps/step_14.md)
 - [ ] Implementation: `README.md`, `docs/architecture/architecture.md`, `docs/security/security_design.md`
 - [ ] Quality checks: pytest — fix all issues
 - [ ] Commit message prepared

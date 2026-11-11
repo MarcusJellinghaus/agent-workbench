@@ -29,6 +29,8 @@ def to_structured_tool(spec: "ToolSpec") -> StructuredTool:
 ## HOW
 - `tools.py` module docstring: tool packages are imported only inside `build_toolsets`
   (step 6); `ToolSpec` only under `TYPE_CHECKING` (from `agent_workbench.adapters.tool_spec`).
+  *(Plugin model: step 9 rewrites this docstring – tool packages are never imported,
+  providers are loaded by entry point.)*
 - `from langchain_core.tools import StructuredTool` at module level (adapters may).
 - Sync `fn` → `StructuredTool(name=..., description=..., args_schema=spec.args_model,
   func=_call)`; async `fn` (`inspect.iscoroutinefunction`) → `coroutine=_acall`. The graph

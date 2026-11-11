@@ -1,71 +1,58 @@
-# Step 8 – Tool errors, tool callbacks and inactivity pause
+# Step 8 – Remove the hard-coded tool packages
 
 ## LLM prompt
-Read `pr_info/steps/summary.md` and this file (`pr_info/steps/step_8.md`), then implement
-this step only. TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`) and
-mypy; all must pass. One commit.
+Read `pr_info/steps/summary.md`, `pr_info/steps/Decisions.md` and this file
+(`pr_info/steps/step_8.md`), then implement this step only. Tool packages become plugins
+(step 9): agent-workbench must not name `mcp_tools_sql` / `mcp_workspace` or their config
+keys. This step removes what steps 1, 3 and 4 hard-coded. TDD: adjust the tests first.
+Run pylint, pytest (`-n auto -m "not integration"`), mypy and vulture
+(`run_vulture_check`); all must pass. One commit.
 
 ## WHERE
-- `src/agent_workbench/apps/agent.py` (`build_graph`, `run_turn`)
-- `tests/apps/test_agent_graph.py`, `tests/apps/test_agent_turn.py`
+- `pyproject.toml`
+- `src/agent_workbench/adapters/config.py`
+- `src/agent_workbench/services/logging_setup.py`
+- `tests/adapters/test_config.py`, `tests/services/test_logging_setup.py`
 
 ## WHAT
 ```python
-ToolStart = Callable[[str, str, dict[str, Any]], Awaitable[None]]  # run_id, tool name, args
-ToolEnd = Callable[[str, str], Awaitable[None]]                    # run_id, output text
+# adapters/config.py – kept: ConfigFile.tools / tools_type_error, _table, read_config_file
+def tools_config_problems(config_file: ConfigFile) -> list[tuple[str, str, str]]:
+    """Return ``(label, status, message)`` error rows for the shape of ``[tools]``.
 
-async def run_turn(  # existing parameters unchanged
-    ...,
-    *,
-    idle_timeout: float = IDLE_TIMEOUT,
-    overall_timeout: float = OVERALL_TIMEOUT,
-    on_tool_start: ToolStart | None = None,
-    on_tool_end: ToolEnd | None = None,
-) -> str | None: ...
+    Only the shape is checked: ``[tools]`` and each ``[tools.<name>]`` must be tables.
+    Keys and paths belong to the provider registered as ``<name>`` (its ``verify`` rows).
+    """
 ```
+Removed: `TOOL_KEYS`, `REQUIRED_TOOL_KEYS`, `tool_path`, `_with_hint` (if unused), the
+`unknown_key_hint` import (if unused), `SIBLING_LOGGERS` and its loop in `setup_logging`,
+the mypy override for `mcp_tools_sql` / `mcp_workspace` (step 1).
 
 ## HOW
-- `build_graph`: `ToolNode(list(tools), handle_tool_errors=True)` with a comment: the
-  default handler re-raises everything except `ToolInvocationError`; with `True` every
-  tool exception becomes an error `ToolMessage` (its text goes to the provider) and the
-  turn continues. `asyncio.CancelledError` is not an `Exception` and still propagates.
-- `run_turn`, inside the existing `astream_events` loop:
-  - `on_tool_start` event → `paused = True`; call `on_tool_start(event["run_id"],
-    event["name"], event["data"].get("input") or {})`.
-  - `on_tool_end` and `on_tool_error` events → call `on_tool_end(run_id, text)` with
-    `text = str(getattr(output, "content", output))` (error: `str(event["data"].get("error"))`).
-    Find out which of the two a failed tool emits with `handle_tool_errors=True` and note
-    it in a comment; the UI closes leftover steps anyway (step 10).
-  - `on_chat_model_start` → `paused = False`.
-  - Timer: `idle.reschedule(None if paused else loop.time() + idle_timeout)` on every
-    event. Resuming does not depend on a tool-end event. The overall timer still applies.
-- Docstring: document the callbacks and the pause (the inactivity limit is per model call).
+- `tools_config_problems`: keep the `tools_type_error` row and the "expected table, got
+  <type>" row per subtable. Drop unknown-table warnings (every name is a provider name;
+  "no provider registered" is reported by discovery, step 9), required / unknown keys,
+  string-type and relative-path checks. Update its docstring and the module docstring.
+- `logging_setup.setup_logging`: drop the clamp loop and "clamp sibling loggers" from the
+  docstring. Step 10 adds `clamp_loggers(names)` together with its caller.
+- `pyproject.toml`: remove the `mcp_tools_sql` / `mcp_workspace` `[[tool.mypy.overrides]]`
+  block.
 
 ## ALGORITHM
 ```
-paused = False
-async for event in events:
-    kind = event["event"]
-    if kind == "on_tool_start": paused = True; await on_tool_start?(...)
-    elif kind == "on_chat_model_start": paused = False
-    idle.reschedule(None if paused else loop.time() + idle_timeout)
-    ... existing stream / usage handling; tool end/error → await on_tool_end?(...)
+if tools_type_error: return [("[tools]", "error", tools_type_error)]
+return [(f"[tools.{name}]", "error", f"expected table, got {type(t).__name__}")
+        for name, t in config_file.tools.items() if not isinstance(t, dict)]
 ```
 
 ## Tests
-- `test_agent_graph.py`: a `StructuredTool` raising `ValueError("boom")`; scripted model
-  calls it, then answers "done" → `ToolMessage.status == "error"`, content contains
-  `boom`, last message "done", model invoked twice.
-- `test_agent_turn.py` (scripted model from `tests/langchain_doubles.py`, `InMemorySaver`):
-  - async tool sleeping 0.3 s, `idle_timeout=0.1`, `overall_timeout=5` → `run_turn`
-    returns `None` and the final answer is streamed (no "No response from the model").
-  - a stalling model after a tool still hits the idle limit (pause ended at
-    `on_chat_model_start`).
-  - callbacks: one tool call → `on_tool_start` once with name and args, `on_tool_end`
-    once with the same `run_id` and the tool's text.
-  - failing tool: turn returns `None`; record which callbacks fired (the assertion
-    documents the emitted event).
-  - Stop while a tool awaits → `asyncio.CancelledError` propagates.
+- `test_config.py`: remove the `tool_path` test and the key / path / unknown-table cases.
+  Keep reading `[tools.*]` into `ConfigFile.tools`, `tools = "x"` → `tools_type_error`,
+  broken `[llm]` still reads `[tools]`. `tools_config_problems` (parametrized): valid
+  tables → `[]`; `[tools.foo]` with any keys → `[]`; subtable not a table → error;
+  `tools_type_error` → one error row. Use provider-neutral table names in new cases.
+- `test_logging_setup.py`: remove `SIBLING_LOGGERS` from the imports and the expected
+  levels, and remove the `mcp_workspace` / `mcp_tools_sql` parametrized test.
 
 ## DATA
-Callbacks receive `run_id: str`, `name: str`, `args: dict`, `output: str`.
+Problem row: `("[tools.sql]", "error", "expected table, got str")`.

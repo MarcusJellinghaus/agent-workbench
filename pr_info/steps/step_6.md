@@ -1,108 +1,100 @@
-# Step 6 – Toolset building with lazy package imports
+# Step 6 – Tool-call log and `wrap_spec`
 
 ## LLM prompt
 Read `pr_info/steps/summary.md` and this file (`pr_info/steps/step_6.md`), then implement
-this step only. Reference: mcp-tools-sql `src/mcp_tools_sql/toolset.py` and
-`tests/test_toolset.py` (`_write_configs`), mcp-workspace `mcp_workspace.toolset.tool_specs`
-(use `get_library_source`). TDD: tests first. Run pylint, pytest
-(`-n auto -m "not integration"`), mypy, lint-imports, deptry (`run_deptry_check`) and
-`tools/check_no_url_deps.py` (read it first for its invocation); all must pass. One
-commit.
-
-**Precondition:** `get_library_source("mcp_tools_sql.toolset.build_toolset")` and
-`get_library_source("mcp_workspace.toolset.tool_specs")` both return source. If either is
-not found, write one line to `pr_info/.blocked.txt` naming the missing module and stop.
+this step only. Pattern for the hand-written JSONL writer: mcp_coder
+`src/mcp_coder/icoder/core/event_log.py` (reference project `mcp_coder`) – but open, append
+and close per write. TDD: tests first. Run pylint, pytest (`-n auto -m "not integration"`),
+mypy and lint-imports; all must pass. One commit.
+The hand-written JSONL writer is the one documented exception to "all logging via
+`mcp_coder_utils.log_utils`"; app-log messages (e.g. a failed write) still go through
+the standard `logging` module. If this step needs anything else `log_utils` cannot do,
+stop and report instead of working around it.
 
 ## WHERE
-- `src/agent_workbench/adapters/tools.py`
-- `.importlinter`
-- `pyproject.toml`
-- new `tests/adapters/tool_fixtures.py`
-- `tests/adapters/test_tools.py`
+- new `src/agent_workbench/services/tool_call_log.py` (no `langchain_core`)
+- new `tests/services/test_tool_call_log.py`
 
 ## WHAT
 ```python
-@dataclass(frozen=True)
-class Toolsets:
-    """The tool specs of every configured package plus what must be closed."""
+MAX_PARAM_CHARS = 200
+LOG_FILE_NAME = "tool_calls.jsonl"
 
-    specs: tuple["ToolSpec", ...]
-    sql: Any = None  # mcp_tools_sql SqlToolset: owns the DB connections
+def truncate_text(text: str, limit: int = MAX_PARAM_CHARS) -> str:
+    """Return *text* cut to *limit* characters with its full length noted."""
 
-    def close(self) -> None:
-        """Close the SQL toolset's connections (no-op without one)."""
+def sanitize_params(value: Any) -> Any:
+    """Redact sensitive keys and cut long strings, recursively through dicts and lists."""
 
-def build_toolsets(config_file: ConfigFile) -> Toolsets:
-    """Build the tools of every package in ``[tools]``; close with ``Toolsets.close``.
+def tool_call_log_path() -> Path:
+    """Return ``<app-data>/logs/tool_calls.jsonl``."""
 
-    Raises:
-        ValueError: A ``[tools]`` error (see ``tools_config_problems``) or a duplicate
-            tool name across packages.
-        ImportError: A configured package is not installed.
+def log_tool_call(
+    tool: str,
+    params: Mapping[str, Any],
+    outcome: str,              # "ok" | "error" | "cancelled" | e.g. "denied" (#18)
+    result_size: int | None,
+    duration_s: float,
+) -> None:
+    """Append one JSON line; a failed write is logged to the app log, never raised."""
+
+def wrap_spec(spec: "ToolSpec") -> "ToolSpec":
+    """Return *spec* with ``fn`` wrapped so every call is logged.
+
+    A sync ``fn`` stays sync, an async one stays async; the result is returned unchanged.
     """
 ```
 
 ## HOW
-- Package imports only inside `build_toolsets`, per configured table:
-  `from mcp_tools_sql.toolset import build_toolset`,
-  `from mcp_workspace.toolset import tool_specs`; `ToolCollector` lazily from
-  `agent_workbench.adapters.tool_spec`.
-- `.importlinter`: two `forbidden` contracts in the style of `httpx_isolation`:
-  `mcp_tools_sql only in adapters`, `mcp_workspace only in adapters`
-  (`ignore_imports = agent_workbench.adapters.** -> <pkg>`).
-- `pyproject.toml` (in this step, not earlier: before the first `src` import deptry
-  reports the extras as unused, DEP002):
-  1. New extras in `[project.optional-dependencies]` (after the LangChain extras, with a
-     `# Tool packages (#17), imported only when configured` comment):
-     ```toml
-     sql = ["mcp-tools-sql"]
-     sql-mssql = ["mcp-tools-sql[mssql]"]
-     workspace = ["mcp-workspace"]
-     ```
-     No version floors – #20 adds them once the siblings are released.
-  2. `dev`: `"agent-workbench[typecheck,coverage,langchain,sql,workspace]"`. Keep the
-     `mcp-workspace` line (Claude Code MCP server) and its comment. Update the deptry
-     comment: it names the self-referenced extras deptry does not expand.
-  3. `[tool.mcp-coder.install-from-github] packages` gains
-     `"mcp-tools-sql @ git+https://github.com/MarcusJellinghaus/mcp-tools-sql.git"`
-     (with deps, next to `mcp-workspace`). No URL in `[project]` dependencies
-     (`tools/check_no_url_deps.py`).
+- Module docstring documents: the one exception to "all logging via `log_utils`"
+  (`log_utils` configures only the root logger and cannot write a separate file independent
+  of `--log-level`); never the result; over-redaction accepted (e.g. `max_tokens`
+  contains `token`); secrets inside free text (SQL literals, file content) are not
+  detected; not logged here: calls failing in `ToolNode` before `fn` runs (invalid
+  arguments, unknown tool – #18's permission node logs them); errors a tool returns as
+  text log as `ok`; a sync tool still running after Stop logs `ok` later.
+- `from agent_workbench.adapters import config` and resolve the path through
+  `config.app_data_dir()` at every write (tests patch it).
+- `from agent_workbench.adapters.redaction import REDACTED_VALUE, SENSITIVE_KEY_PATTERNS`;
+  `from agent_workbench.adapters.tool_results import result_text`;
+  `ToolSpec` only under `TYPE_CHECKING`; `dataclasses.replace(spec, fn=wrapper)`.
+- `_write_lock = threading.Lock()`: sync tools run in executor threads and `ToolNode`
+  runs calls concurrently.
+- User: `getpass.getuser()`; timestamp `datetime.now(UTC).isoformat()`.
 
 ## ALGORITHM
 ```
-errors = [m for label, status, m in tools_config_problems(config_file) if status == "error"]
-if errors: raise ValueError("Invalid [tools] config: " + "; ".join(errors))
-tools = config_file.tools; collector = ToolCollector(); sql = None
-try:
-    if "sql" in tools: sql = build_toolset(tool_path(qc), tool_path(db) if db else None); add sql.specs
-    if "workspace" in tools: add tool_specs(tool_path(project_dir))
-except BaseException: if sql: sql.close(); raise
-return Toolsets(collector.specs, sql)
+sanitize_params(v):
+    dict → {k: REDACTED_VALUE if any(p in str(k).lower() for p in SENSITIVE_KEY_PATTERNS) else sanitize_params(x)}
+    list/tuple → [sanitize_params(x) for x in v];  str → truncate_text(v);  else v
+truncate_text(t, n): t if len(t) <= n else f"{t[:n]}… [{len(t)} chars]"
+log_tool_call: line = json.dumps({ts, user, tool, params: sanitize_params(dict(params)), outcome, result_size, duration_s}, ensure_ascii=False, default=str)
+    try: with _write_lock: path.parent.mkdir(parents, exist_ok); with path.open("a", encoding="utf-8") as f: f.write(line + "\n")
+    except Exception: logger.exception("Writing the tool-call log failed")
+wrapper(**kw): start = monotonic(); try result = [await] fn(**kw)
+    except CancelledError (async only): log "cancelled"; raise   |   except Exception: log "error"; raise
+    log "ok", len(result_text(result)); return result
 ```
-Each package uses its own `ToolCollector`; adding both packages' specs to one collector
-makes a duplicate name raise `ValueError`.
+Use `functools.wraps(spec.fn)` on both wrappers; the async wrapper is an `async def`.
 
-## Tests
-`tests/adapters/tool_fixtures.py` (plain helpers, no fixtures):
-- `write_sql_configs(tmp_path) -> tuple[Path, Path]`: SQLite db with a `customers` table,
-  query config `connection = "default"`, database config `[connections.default] backend =
-  "sqlite"`, `path = "<db>"` (copy of mcp-tools-sql's `_write_configs`, no queries/updates).
-  Tests always pass this temp `database_config`, so `~/.mcp-tools-sql/config.toml` is never
-  read.
-- `write_config_file(tmp_path, sql=True, workspace=True) -> Path`: an agent-workbench
-  `config.toml` with absolute `[tools.sql]` / `[tools.workspace]` paths (workspace =
-  `tmp_path / "ws"`, created).
-- Read with `read_config_file(path)`.
-
-`test_tools.py`:
-- both packages configured → specs contain `read_tables` and `read_file`; `sql` set;
-  `close()` closes it (spy on `sql.close` or `BackendRegistry.close_all`).
-- workspace only, with `monkeypatch.setitem(sys.modules, "mcp_tools_sql.toolset", None)`
-  → build succeeds (SQL package not imported when not configured).
-- SQL configured, `mcp_tools_sql.toolset` blocked the same way → `ImportError`.
-- duplicate name: patch `mcp_workspace.toolset.tool_specs` to return a spec named
-  `read_tables` → `ValueError`, and the SQL toolset was closed.
-- `[tools]` error (relative path) → `ValueError`, nothing built.
+## Tests (`tests/services/test_tool_call_log.py`, patch `agent_workbench.adapters.config.app_data_dir` → `tmp_path`)
+- `sanitize_params` (parametrized): `{"password": "x"}`, `{"API_KEY": "x"}`,
+  `{"outer": {"db_token": "x"}}`, `{"items": [{"secret": "x"}]}` → redacted; `max_tokens`
+  redacted (accepted over-redaction); a 250-char string → first 200 chars + `[250 chars]`,
+  also nested in a list inside a dict; non-strings unchanged.
+- sync spec wrapped: `not inspect.iscoroutinefunction(wrapped.fn)`, result unchanged, one
+  line with `outcome == "ok"`, `result_size == len(result_text(result))`, `tool`, `user`,
+  `params`, `duration_s`, a UTC timestamp; no result in the line.
+- async spec wrapped: `inspect.iscoroutinefunction(wrapped.fn)`.
+- raising tool → exception re-raised, `outcome == "error"`.
+- async tool cancelled (task + `cancel()` while it awaits an `asyncio.Event`) →
+  `CancelledError` propagates, `outcome == "cancelled"`.
+- failed write (make `tmp_path / "logs"` a file) → no exception, `logger.exception`
+  called (caplog), the tool's result still returned.
+- `log_tool_call("x", {}, "denied", None, 0.0)` writes a line with `result_size: null`.
+- 20 threads calling `log_tool_call` → 20 lines, each valid JSON.
 
 ## DATA
-`Toolsets(specs=tuple[ToolSpec, ...], sql=SqlToolset | None)`.
+JSONL line:
+`{"timestamp": "2026-…+00:00", "user": "…", "tool": "read_tables", "params": {...},
+"outcome": "ok", "result_size": 123, "duration_s": 0.012}`
