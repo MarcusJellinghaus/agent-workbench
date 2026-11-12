@@ -75,7 +75,8 @@ mode per tool decides what the model may call; every tool call is logged.
 ```
 
 Configuration (agent-workbench config, mcp-tools-sql config) and the user app-data folder
-(logs, session database) lie outside the workspace folder.
+(logs, session database) lie outside the workspace folder by configuration, not enforced –
+known gap (workspace guard planned in mcp-workspace).
 
 ---
 
@@ -110,10 +111,10 @@ Package: `src/agent_workbench/`. Dependencies flow downward only; enforced by
 
 | Layer | Package | Responsibility (planned) | Status |
 |---|---|---|---|
-| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | LangGraph agent (no tools), Chainlit chat page, `agent-workbench-ui`, sessions (save, list, resume, delete) |
-| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify, prompt |
-| services | `agent_workbench.services` | Permission check and confirmation, tool-call logging, toolset building and reload | verify checks, logging setup |
-| adapters | `agent_workbench.adapters` | Copied LLM model layer, tool-spec → LangChain tool adapter, lazy loading of tool packages | copied LLM model layer, config loader, chat-model functions |
+| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | LangGraph agent with tools (wiring, tool errors, tool callbacks), Chainlit chat page with tool steps, `agent-workbench-ui` (toolset build gate), sessions (save, list, resume, delete) |
+| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify (incl. TOOLS), prompt |
+| services | `agent_workbench.services` | Permission check and confirmation, tool filter, tool-call logging | verify checks, logging setup, tool filter (hard-coded until permissions), tool-call log |
+| adapters | `agent_workbench.adapters` | Copied LLM model layer, toolset provider discovery (entry points `agent_workbench.toolsets`; no tool package imported anywhere), toolset building (called from `apps`), tool-spec → LangChain tool adapter, `mcp_coder_utils` shims | copied LLM model layer, config loader, chat-model functions, provider discovery, toolset building, tool adapter, shims |
 | core | `agent_workbench.core` | Config models, permission modes, domain types | `LLMConfig` |
 
 Additional contracts:
@@ -130,8 +131,8 @@ adds a dependency also adds its import-linter `forbidden` contract
 | Layer | Allowed third-party libraries |
 |---|---|
 | core | `pydantic` only (models, config); `pydantic` is allowed in every layer |
-| adapters | `langchain-core`, LangChain provider packages (optional), `httpx`, `truststore`, mcp-tools-sql and mcp-workspace (optional, lazy), `mcp-coder-utils` |
-| services | `mcp-coder-utils` (redaction, logging) |
+| adapters | `langchain-core`, LangChain provider packages (optional), `httpx`, `truststore`, `mcp-coder-utils` (only in the shims `redaction`, `tool_spec`, `user_app_data`); tool packages are never imported, only loaded through their entry points |
+| services | `mcp-coder-utils` only via `logging_setup` (`log_utils`); redaction, tool contract and app-data dir via the `adapters` shims |
 | interfaces | none beyond the standard library |
 | apps | `langgraph`, `langchain-core`, `chainlit`, `sqlalchemy`, `aiosqlite` |
 
@@ -141,7 +142,9 @@ Chainlit, so it has no contract). `langchain-core`, `langgraph`, the SQLite chec
 (`langgraph-checkpoint-sqlite`) and `httpx` are in `[langchain-base]`, as in mcp_coder.
 Everything else is an extra: LLM providers named as in mcp_coder (`[langchain-openai]`,
 `[langchain-anthropic]`, `[langchain-gemini]`, `[langchain-ollama]`, meta extra
-`[langchain]` for all four) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`).
+`[langchain]` for all four) and tools (`[sql]`, `[sql-mssql]`, `[workspace]`; install
+shortcuts only – any package registering an `agent_workbench.toolsets` entry point is a
+tool plugin).
 
 ### Placeholder code
 
@@ -173,8 +176,34 @@ Git / GitHub tools are `deny` by default.
 
 ### Logging and retention
 
-Tool-call log (planned): one structured line per tool call: user, tool, parameters, result
-size, duration; no results; secrets redacted; in the user app-data folder.
+Logging strategy:
+
+- All logging goes through `mcp_coder_utils.log_utils` / `mcp_coder_utils.redaction`,
+  reached only through local shims. The import-linter contract `mcp_coder_utils_isolation`
+  allows exactly four modules to import `mcp_coder_utils`: `adapters.redaction`,
+  `adapters.tool_spec`, `adapters.user_app_data` and `services.logging_setup`.
+- App log: only `agent-workbench-ui` writes a file – one per run,
+  `<app-data>/logs/agent_workbench_ui_<timestamp>.log`, level from `--log-level` (default
+  `INFO`), console at `OUTPUT`. `verify` and `prompt` log to the console only.
+- The loggers of the configured providers' top-level packages are clamped to `INFO`: at
+  DEBUG the current tool packages log parameters and results unredacted. Their `INFO` /
+  `ERROR` lines still contain file paths and error texts.
+
+Tool-call log: the one hand-written exception, since `log_utils` configures only the root
+logger and cannot write a separate file independent of `--log-level`.
+
+- One JSON line per call in `<app-data>/logs/tool_calls.jsonl`: UTC timestamp, OS user,
+  tool, parameters, outcome (`ok` / `error` / `cancelled`), result size (length of the
+  text the model receives), duration. Never the result.
+- Parameters: strings longer than 200 characters are cut and their full length noted, also
+  inside nested dicts / lists. Keys containing one of `SENSITIVE_KEY_PATTERNS`
+  (case-insensitive substring, recursive) are replaced by `REDACTED_VALUE`. Over-redaction
+  (e.g. `max_tokens`) is accepted; secrets inside free text (SQL literals, file content)
+  are not detected.
+- Not logged: calls that fail before the tool function runs (invalid arguments, unknown
+  tool name) – until the permission node (#18) logs them. Errors a tool returns as text
+  log as `ok`.
+- A failed write is logged to the app log and does not abort the turn.
 
 Sessions: full conversations are kept until the user deletes them. Two SQLite files in
 `<app-data>/sessions/` (WAL mode): `checkpoints.sqlite` (LangGraph `AsyncSqliteSaver`, the
@@ -188,7 +217,8 @@ As in mcp_coder:
 
 - At most 50 agent steps per turn (LangGraph `recursion_limit`); a `GraphRecursionError`
   is shown as a message.
-- 300 s inactivity per turn (no stream event) and 3600 s overall per turn.
+- 300 s inactivity per turn (no stream event), paused while tools run, and 3600 s overall
+  per turn.
 - Chat model HTTP timeout 300 s.
 - Token usage per turn and per session shown in the UI. No budgets.
 

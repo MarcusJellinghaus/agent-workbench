@@ -87,9 +87,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 14: Documentation - [step_14.md](./steps/step_14.md)
-- [ ] Implementation: `README.md`, `docs/architecture/architecture.md`, `docs/security/security_design.md`
-- [ ] Quality checks: pytest — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `README.md`, `docs/architecture/architecture.md`, `docs/security/security_design.md`
+- [x] Quality checks: pytest — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 - [ ] PR review: review the full branch diff and address the findings
