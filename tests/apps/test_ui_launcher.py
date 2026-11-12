@@ -72,6 +72,14 @@ def test_passed_verify_starts_chainlit(
     assert (root / ".chainlit" / "config.toml").is_file()
 
 
+def test_verify_runs_without_tool_connections() -> None:
+    with patch(
+        "agent_workbench.services.verify.run_verify", return_value=_report(0)
+    ) as run_verify:
+        assert ui_launcher.main([]) == 0
+    run_verify.assert_called_once_with(connect_tools=False)
+
+
 def test_main_logs_to_app_log_file_at_info(tmp_path: Path) -> None:
     with (
         patch("agent_workbench.services.logging_setup.setup_logging") as setup_logging,

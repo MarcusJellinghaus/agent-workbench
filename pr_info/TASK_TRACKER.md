@@ -82,9 +82,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 13: `verify` TOOLS section with the providers' rows - [step_13.md](./steps/step_13.md)
-- [ ] Implementation: `verify_tools(connect=...)`, `run_verify(connect_tools=...)`, `VerifyReport` fields, `compute_exit_code`, TOOLS section in `verify_formatting`, launcher passes `connect_tools=False`, tests
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `verify_tools(connect=...)`, `run_verify(connect_tools=...)`, `VerifyReport` fields, `compute_exit_code`, TOOLS section in `verify_formatting`, launcher passes `connect_tools=False`, tests
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 14: Documentation - [step_14.md](./steps/step_14.md)
 - [ ] Implementation: `README.md`, `docs/architecture/architecture.md`, `docs/security/security_design.md`

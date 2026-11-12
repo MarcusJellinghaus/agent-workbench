@@ -265,7 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     from agent_workbench.interfaces.verify_formatting import format_report
     from agent_workbench.services.verify import run_verify
 
-    report = run_verify()
+    # A tool backend that is down must not block the start: no tool connections.
+    report = run_verify(connect_tools=False)
     if report.exit_code:
         print(format_report(report))
         return 1

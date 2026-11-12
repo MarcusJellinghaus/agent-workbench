@@ -127,6 +127,32 @@ def test_format_report_sections_in_order() -> None:
     assert "INSTALL INSTRUCTIONS" not in text
 
 
+def test_format_report_tools_section_after_config() -> None:
+    text = format_report(
+        _report(
+            config_entries=[{"label": "[llm]", "status": "ok", "value": "x"}],
+            tools_entries=[
+                {"label": "[tools.fake]", "status": "ok", "value": "config.a: found"},
+                {"label": "[tools.fake]", "status": "error", "value": "config.b: bad"},
+                {
+                    "label": "[tools.fake]",
+                    "status": "warning",
+                    "value": "config.c: odd",
+                },
+            ],
+            tools_has_error=True,
+        )
+    )
+    lines = text.splitlines()
+    assert text.index("=== CONFIG") < text.index("=== TOOLS")
+    assert text.index("=== TOOLS") < text.index("=== LLM PROVIDER ")
+    header = lines.index("  [tools.fake]")
+    assert lines.index(next(x for x in lines if x.startswith("=== TOOLS"))) < header
+    assert "[OK]" in lines[header + 1] and "config.a: found" in lines[header + 1]
+    assert "[ERR]" in lines[header + 2] and "config.b: bad" in lines[header + 2]
+    assert "[WARN]" in lines[header + 3] and "config.c: odd" in lines[header + 3]
+
+
 def test_format_report_not_configured() -> None:
     text = format_report(_report(backend=None))
     assert "not configured" in _line(text, "Active provider")

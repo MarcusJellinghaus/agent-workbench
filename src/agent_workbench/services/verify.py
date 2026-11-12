@@ -1,4 +1,4 @@
-"""``verify`` checks: config, LLM provider and a live test prompt.
+"""``verify`` checks: config, tools, LLM provider and a live test prompt.
 
 Returns a structured :class:`VerifyReport`; printing is left to ``interfaces``.
 The copied model layer is imported inside :func:`run_verify` so that importing
@@ -6,12 +6,12 @@ this module stays light (no ``langchain_core`` at import time).
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agent_workbench.adapters import config as adapters_config
-from agent_workbench.adapters import llm
+from agent_workbench.adapters import llm, toolset_providers
 from agent_workbench.adapters.config_hints import unknown_key_hint
 from agent_workbench.core.config import LLM_KEYS, LLMConfig
 
@@ -39,6 +39,8 @@ class VerifyReport:
             failure category text.
         install_hints: Install hints of failed provider rows.
         exit_code: 0 when every exit-relevant check passed, else 1.
+        tools_entries: TOOLS rows, same shape as ``config_entries``.
+        tools_has_error: Whether the TOOLS section found an error.
     """
 
     config_path: Path
@@ -49,10 +51,16 @@ class VerifyReport:
     test_prompt_error: str | None
     install_hints: list[str]
     exit_code: int
+    tools_entries: list[dict[str, str]] = field(default_factory=list)
+    tools_has_error: bool = False
 
 
 def _llm_entry(status: str, value: str) -> dict[str, str]:
     return {"label": _LLM_LABEL, "status": status, "value": value}
+
+
+def _row(label: str, status: str, value: str) -> dict[str, str]:
+    return {"label": label, "status": status, "value": value}
 
 
 def verify_config(
@@ -147,6 +155,57 @@ def verify_config(
     return entries, has_error
 
 
+def verify_tools(
+    config_file: adapters_config.ConfigFile, *, connect: bool
+) -> tuple[list[dict[str, str]], bool]:
+    """Check ``[tools]``: shape, provider registered, then the provider's own ``verify`` rows.
+
+    No tool-specific checks: rows come from ``ToolsetProvider.verify(connect=connect)``.
+
+    Args:
+        config_file: The read config file.
+        connect: Passed to each provider's ``verify``; True may open connections.
+
+    Returns:
+        TOOLS rows (``{"label", "status", "value"}``) and whether any is an error.
+    """
+    if config_file.parse_error:
+        return [_row("[tools]", "info", "not checked – invalid config file")], False
+    if not config_file.tools and not config_file.tools_type_error:
+        return [_row("[tools]", "info", "not configured")], False
+    rows = [
+        _row(label, status, message)
+        for label, status, message in adapters_config.tools_config_problems(config_file)
+    ]
+    for name, table in config_file.tools.items():
+        if not isinstance(table, dict):
+            continue
+        label = f"[tools.{name}]"
+        try:
+            cls = toolset_providers.provider_class(name)
+        except ValueError as exc:
+            rows.append(_row(label, "error", str(exc)))
+            continue
+        try:
+            items = cls(table).verify(connect=connect)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            # The provider contract says verify doesn't raise; report it if it does.
+            rows.append(
+                _row(label, "error", f"verify failed: {type(exc).__name__}: {exc}")
+            )
+            continue
+        rows.extend(
+            _row(
+                label,
+                item.status,
+                f"{item.name}: {item.message}"
+                + (f" – {item.hint}" if item.hint else ""),
+            )
+            for item in items
+        )
+    return rows, any(row["status"] == "error" for row in rows)
+
+
 def collect_install_hints(rows: dict[str, Any]) -> list[str]:
     """Collect ``install_hint`` values from failed provider rows.
 
@@ -164,7 +223,10 @@ def collect_install_hints(rows: dict[str, Any]) -> list[str]:
 
 
 def compute_exit_code(
-    config_has_error: bool, overall_ok: bool, test_prompt_ok: bool
+    config_has_error: bool,
+    overall_ok: bool,
+    test_prompt_ok: bool,
+    tools_has_error: bool = False,
 ) -> int:
     """Compute the ``verify`` exit code.
 
@@ -174,11 +236,12 @@ def compute_exit_code(
         config_has_error: Whether the CONFIG section found an error.
         overall_ok: ``check_provider()``'s ``overall_ok``.
         test_prompt_ok: Whether the test prompt answered.
+        tools_has_error: Whether the TOOLS section found an error.
 
     Returns:
-        1 if any of the three failed, else 0.
+        1 if any of the four failed, else 0.
     """
-    if config_has_error or not overall_ok or not test_prompt_ok:
+    if config_has_error or not overall_ok or not test_prompt_ok or tools_has_error:
         return 1
     return 0
 
@@ -213,11 +276,15 @@ def _run_test_prompt(config: LLMConfig) -> str | None:
     return None
 
 
-def run_verify(check_models: bool = False) -> VerifyReport:
+def run_verify(
+    check_models: bool = False, *, connect_tools: bool = True
+) -> VerifyReport:
     """Run every ``verify`` check.
 
     Args:
         check_models: If True, also list the backend's models (advisory only).
+        connect_tools: Passed to the toolset providers' ``verify`` as ``connect``;
+            False opens no tool connection.
 
     Returns:
         The structured report.
@@ -226,6 +293,7 @@ def run_verify(check_models: bool = False) -> VerifyReport:
 
     config_file = adapters_config.read_config_file()
     entries, config_has_error = verify_config(config_file)
+    tools_entries, tools_has_error = verify_tools(config_file, connect=connect_tools)
     config = adapters_config.load_llm_config(config_file)
     rows = _provider_checks.check_provider(config.as_dict(), check_models=check_models)
     test_prompt_error = _run_test_prompt(config)
@@ -238,6 +306,11 @@ def run_verify(check_models: bool = False) -> VerifyReport:
         test_prompt_error=test_prompt_error,
         install_hints=collect_install_hints(rows),
         exit_code=compute_exit_code(
-            config_has_error, bool(rows["overall_ok"]), test_prompt_error is None
+            config_has_error,
+            bool(rows["overall_ok"]),
+            test_prompt_error is None,
+            tools_has_error,
         ),
+        tools_entries=tools_entries,
+        tools_has_error=tools_has_error,
     )
