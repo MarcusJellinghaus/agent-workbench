@@ -94,8 +94,8 @@ agent-workbench verify --check-models
 agent-workbench --log-level DEBUG verify
 ```
 
-Sections: CONFIG, LLM PROVIDER, EFFECTIVE CONFIG, LLM PROVIDER DETAILS (ending with the
-test prompt), TOOLS (the toolset providers' own checks) and, when provider packages are
+Sections: CONFIG, TOOLS (the toolset providers' own checks), LLM PROVIDER, EFFECTIVE
+CONFIG, LLM PROVIDER DETAILS (ending with the test prompt) and, when provider packages are
 missing, INSTALL INSTRUCTIONS.
 
 - `--check-models` also lists the backend's available models. Advisory: it does not
