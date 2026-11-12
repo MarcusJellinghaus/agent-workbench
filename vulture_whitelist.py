@@ -80,5 +80,7 @@ _.pytestmark
 _._fresh_runtime
 # tests/apps/conftest.py: autouse fixture resetting Chainlit's data layer
 _._chainlit_data_layer
+# tests/conftest.py: pytest hook, called by pytest
+_.pytest_configure
 # tests/conftest.py: pytest fixture, used via usefixtures
 _.restore_root_logging
