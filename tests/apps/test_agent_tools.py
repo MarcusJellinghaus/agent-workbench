@@ -203,7 +203,7 @@ async def test_get_runtime_clamps_provider_loggers(
     with (
         patch.object(agent, "load_llm_config", return_value=LLM_CONFIG),
         patch.object(agent, "create_chat_model", return_value=_answer("hi")),
-        patch.object(agent, "clamp_loggers") as clamp,
+        patch("agent_workbench.services.logging_setup.clamp_loggers") as clamp,
     ):
         try:
             await agent.get_runtime()

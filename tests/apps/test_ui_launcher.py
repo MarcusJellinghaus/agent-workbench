@@ -196,10 +196,32 @@ def test_built_toolsets_are_closed_before_chainlit(
         patch("agent_workbench.adapters.tools.build_toolsets", calls.build_toolsets),
     ):
         assert ui_launcher.main([]) == 0
+    names = [name for name, _, _ in calls.mock_calls]
+    assert names.index("clamp_loggers") < names.index("build_toolsets")
+    calls.clamp_loggers.assert_called_with(["tests"])
+    calls.build_toolsets.return_value.close.assert_called_once_with()
+    isolated.assert_called_once()
+
+
+def test_provider_loggers_clamped_before_verify(
+    isolated: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """verify loads the providers, so their loggers are clamped before it runs."""
+    register_providers(monkeypatch, {"fake": new_provider()})
+    write_config_file(tmp_path, {"fake": {}})
+    calls = MagicMock()
+    calls.run_verify.return_value = _report(0)
+    with (
+        patch("agent_workbench.services.verify.run_verify", calls.run_verify),
+        patch(
+            "agent_workbench.services.logging_setup.clamp_loggers",
+            calls.clamp_loggers,
+        ),
+    ):
+        assert ui_launcher.main([]) == 0
     assert [name for name, _, _ in calls.mock_calls][:2] == [
         "clamp_loggers",
-        "build_toolsets",
+        "run_verify",
     ]
-    calls.clamp_loggers.assert_called_once_with(["tests"])
-    calls.build_toolsets.return_value.close.assert_called_once_with()
+    assert calls.clamp_loggers.call_args_list[0].args == (["tests"],)
     isolated.assert_called_once()

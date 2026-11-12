@@ -84,3 +84,5 @@ _._chainlit_data_layer
 _.pytest_configure
 # tests/conftest.py: pytest fixture, used via usefixtures
 _.restore_root_logging
+# tests/services/test_tool_call_log.py: pydantic field of a nested test argument
+_.password

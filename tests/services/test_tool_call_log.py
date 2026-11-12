@@ -7,10 +7,12 @@ import logging
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
 from mcp_coder_utils.tool_spec import ToolSpec, tool_spec
+from pydantic import BaseModel
 
 from agent_workbench.adapters.tool_results import result_text
 from agent_workbench.services import tool_call_log
@@ -60,6 +62,40 @@ def _lines(app_data: Path) -> list[dict[str, Any]]:
 def test_sanitize_params(params: dict[str, Any], expected: dict[str, Any]) -> None:
     """Sensitive keys are redacted (also over-redacted) and long strings cut, recursively."""
     assert sanitize_params(params) == expected
+
+
+class _Connection(BaseModel):
+    """A nested tool argument; LangChain passes it on as a model instance."""
+
+    password: str
+    query: str
+
+
+def test_sanitize_params_nested_model() -> None:
+    """A nested pydantic model is redacted and cut like a dict."""
+    params = {"conn": _Connection(password="hunter2", query=_LONG)}
+    assert sanitize_params(params) == {"conn": {"password": "***", "query": _CUT}}
+
+
+def test_sanitize_params_generic_mapping() -> None:
+    """A non-dict mapping is redacted and cut like a dict."""
+    params = {"outer": MappingProxyType({"api_key": "x", "query": _LONG})}
+    assert sanitize_params(params) == {"outer": {"api_key": "***", "query": _CUT}}
+
+
+def test_nested_model_argument_logged_sanitized(app_data: Path) -> None:
+    """A model argument reaches the log line redacted and cut, not as its repr."""
+
+    def connect(conn: _Connection) -> str:
+        """Connect."""
+        return "ok"
+
+    wrap_spec(tool_spec(connect, group="g.read", read_only=True)).fn(
+        conn=_Connection(password="hunter2", query=_LONG)
+    )
+    (line,) = _lines(app_data)
+    assert line["params"] == {"conn": {"password": "***", "query": _CUT}}
+    assert "hunter2" not in json.dumps(line)
 
 
 def test_truncate_text_short_unchanged() -> None:

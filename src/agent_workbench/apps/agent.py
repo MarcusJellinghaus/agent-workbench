@@ -20,11 +20,10 @@ from agent_workbench.adapters import config, llm
 from agent_workbench.adapters.config import load_llm_config
 from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
-from agent_workbench.adapters.tools import Toolsets, build_toolsets, to_structured_tool
-from agent_workbench.adapters.toolset_providers import provider_packages
+from agent_workbench.adapters.tools import Toolsets, to_structured_tool
+from agent_workbench.apps.tool_setup import build_configured_toolsets
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
-from agent_workbench.services.logging_setup import clamp_loggers
 from agent_workbench.services.tool_call_log import wrap_spec
 from agent_workbench.services.tool_filter import enabled_specs
 
@@ -174,12 +173,7 @@ async def _open_runtime() -> Runtime:
     toolsets: Toolsets | None = None
     saver: AsyncSqliteSaver | None = None
     try:
-        # A non-table [tools] reaches build_toolsets and raises: no silent run
-        # without tools.
-        if config_file.tools or config_file.tools_type_error:
-            # Registered names only; unknown names fail in the build.
-            clamp_loggers(provider_packages(config_file.tools))
-            toolsets = build_toolsets(config_file)
+        toolsets = build_configured_toolsets(config_file)
         saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
         tools = build_tools(toolsets) if toolsets is not None else []
         graph = build_graph(chat_model, tools, saver)

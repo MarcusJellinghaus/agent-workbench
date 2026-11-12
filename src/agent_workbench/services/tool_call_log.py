@@ -29,6 +29,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 from agent_workbench.adapters import config
 from agent_workbench.adapters.redaction import REDACTED_VALUE, SENSITIVE_KEY_PATTERNS
 from agent_workbench.adapters.tool_results import result_text
@@ -69,7 +71,10 @@ def sanitize_params(value: Any) -> Any:
     Returns:
         A sanitized copy; other values are returned unchanged.
     """
-    if isinstance(value, dict):
+    # LangChain passes nested pydantic arguments on as model instances.
+    if isinstance(value, BaseModel):
+        value = value.model_dump()
+    if isinstance(value, Mapping):
         return {
             key: (
                 REDACTED_VALUE

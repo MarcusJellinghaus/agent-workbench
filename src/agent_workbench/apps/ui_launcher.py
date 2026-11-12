@@ -14,8 +14,12 @@ from datetime import datetime
 from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_workbench.apps.origin_check import local_origins
+
+if TYPE_CHECKING:
+    from agent_workbench.adapters.config import ConfigFile
 
 logger = logging.getLogger(__name__)
 
@@ -179,30 +183,27 @@ def _missing_dependency() -> str | None:
     return None
 
 
-def _check_toolsets() -> str | None:
+def _check_toolsets(config_file: "ConfigFile") -> str | None:
     """Build the configured toolsets once and close them; return the error text or None.
 
     ``get_runtime`` runs only after Chainlit has started, so a broken tool setup must
     stop the launcher here. Cheap: per the provider contract, ``build`` opens no
     connection. Builds nothing without a ``[tools]`` table.
 
+    Args:
+        config_file: The read config file.
+
     Returns:
         ``"<ExceptionType>: <message>"`` when the build fails, else None.
     """
-    from agent_workbench.adapters import config as adapters_config
-    from agent_workbench.adapters import tools, toolset_providers
-    from agent_workbench.services.logging_setup import clamp_loggers
+    from agent_workbench.apps.tool_setup import build_configured_toolsets
 
-    config_file = adapters_config.read_config_file()
-    # A non-table [tools] reaches build_toolsets and fails.
-    if not config_file.tools and not config_file.tools_type_error:
-        return None
-    # The app log is already set up: keep the providers' DEBUG output out of it.
-    clamp_loggers(toolset_providers.provider_packages(config_file.tools))
     try:
-        tools.build_toolsets(config_file).close()
+        toolsets = build_configured_toolsets(config_file)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return f"{type(exc).__name__}: {exc}"
+    if toolsets is not None:
+        toolsets.close()
     return None
 
 
@@ -262,8 +263,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    from agent_workbench.adapters.config import read_config_file
+    from agent_workbench.apps.tool_setup import clamp_provider_loggers
     from agent_workbench.interfaces.verify_formatting import format_report
     from agent_workbench.services.verify import run_verify
+
+    # Before verify loads the providers: keep their DEBUG output out of the app log.
+    # Not earlier: tool_setup imports langchain_core, checked by _missing_dependency.
+    config_file = read_config_file()
+    clamp_provider_loggers(config_file)
 
     # A tool backend that is down must not block the start: no tool connections.
     report = run_verify(connect_tools=False)
@@ -271,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         print(format_report(report))
         return 1
 
-    error = _check_toolsets()
+    error = _check_toolsets(config_file)
     if error:
         print(f"Building the tools failed: {error}", file=sys.stderr)
         return 1
