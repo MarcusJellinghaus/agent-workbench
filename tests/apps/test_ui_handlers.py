@@ -5,7 +5,7 @@ import getpass
 import importlib
 import logging
 import sys
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,15 +17,24 @@ import pytest
 from chainlit.server import app
 from chainlit.user import User
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent_workbench import apps
+from agent_workbench.adapters.config import read_config_file
+from agent_workbench.adapters.tools import build_toolsets
 from agent_workbench.apps import agent, ui_handlers
 from agent_workbench.apps.origin_check import OriginCheckMiddleware, local_origins
 from agent_workbench.apps.ui_data_layer import SessionDataLayer
 from agent_workbench.apps.ui_launcher import chainlit_port
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.tool_call_log import truncate_text
+from tests.adapters.tool_fixtures import (
+    new_provider,
+    register_providers,
+    write_config_file,
+)
 from tests.langchain_doubles import make_scripted_chat_model
 
 THREAD_ID = "thread-1"
@@ -37,12 +46,13 @@ class FakeChainlit:
 
     cl: MagicMock
     messages: list[MagicMock] = field(default_factory=list)
+    steps: list[MagicMock] = field(default_factory=list)
     session: dict[str, Any] = field(default_factory=dict)
 
 
 @pytest.fixture
 def fake_cl() -> Iterator[FakeChainlit]:
-    """Patch ``ui_handlers.cl``: messages record calls, ``user_session`` is a dict."""
+    """Patch ``ui_handlers.cl``: messages and steps record calls, a dict session."""
     cl = MagicMock()
     fake = FakeChainlit(cl=cl)
 
@@ -53,7 +63,17 @@ def fake_cl() -> Iterator[FakeChainlit]:
         fake.messages.append(msg)
         return msg
 
+    def step(name: str = "", **kwargs: Any) -> MagicMock:
+        stp = MagicMock()
+        stp.name = name
+        stp.type = kwargs.get("type", "undefined")
+        stp.send = AsyncMock()
+        stp.update = AsyncMock()
+        fake.steps.append(stp)
+        return stp
+
     cl.Message.side_effect = message
+    cl.Step.side_effect = step
     cl.user_session.get.side_effect = fake.session.get
     cl.user_session.set.side_effect = fake.session.__setitem__
     cl.context.session.thread_id = THREAD_ID
@@ -91,7 +111,7 @@ def test_import_adds_origin_middleware() -> None:
 
 @pytest.mark.usefixtures("runtime")
 def test_success_streams_usage_and_sends_answer(fake_cl: FakeChainlit) -> None:
-    async def run_turn(*args: Any) -> None:
+    async def run_turn(*args: Any, **_kwargs: Any) -> None:
         on_text, usage = args[5], args[6]
         await on_text("Hello")
         usage.update(10, 5)
@@ -331,3 +351,144 @@ async def test_turn_on_a_deleted_thread_leaves_no_checkpoints(
 
 def _config(thread_id: str) -> dict[str, Any]:
     return {"configurable": {"thread_id": thread_id}}
+
+
+def _tool_turn(
+    *, end: bool = True, error: str | None = None, stop: bool = False
+) -> Callable[..., Awaitable[str | None]]:
+    """Return a fake ``run_turn`` running tool ``read_tables`` as run ``r1``.
+
+    The tool ends with 5000 characters when *end*; then the turn returns *error*,
+    or raises ``CancelledError`` when *stop*.
+    """
+
+    async def run_turn(*_args: Any, **kwargs: Any) -> str | None:
+        await kwargs["on_tool_start"]("r1", "read_tables", {"schema": "main"})
+        if end:
+            await kwargs["on_tool_end"]("r1", "x" * 5000)
+        if stop:
+            raise asyncio.CancelledError
+        return error
+
+    return run_turn
+
+
+@pytest.mark.usefixtures("runtime")
+def test_tool_step_shows_args_and_truncated_output(fake_cl: FakeChainlit) -> None:
+    with patch.object(ui_handlers, "run_turn", side_effect=_tool_turn()):
+        asyncio.run(ui_handlers.on_message(_user_message()))
+
+    (step,) = fake_cl.steps
+    assert step.name == "read_tables"
+    assert step.type == "tool"
+    assert step.input == {"schema": "main"}
+    assert isinstance(step.start, str)
+    step.send.assert_awaited_once()
+    assert step.output == truncate_text("x" * 5000, ui_handlers.TOOL_OUTPUT_CHARS)
+    assert step.output.startswith("x" * ui_handlers.TOOL_OUTPUT_CHARS + "…")
+    assert isinstance(step.end, str)
+    step.update.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("runtime")
+@pytest.mark.parametrize(
+    ("error", "stop", "raises"),
+    [
+        (None, False, nullcontext()),
+        ("Error: boom", False, nullcontext()),
+        (None, True, pytest.raises(asyncio.CancelledError)),
+    ],
+    ids=["answer", "error", "stop"],
+)
+def test_open_step_is_closed_when_the_turn_ends(
+    error: str | None,
+    stop: bool,
+    raises: AbstractContextManager[Any],
+    fake_cl: FakeChainlit,
+) -> None:
+    turn = _tool_turn(end=False, error=error, stop=stop)
+    with patch.object(ui_handlers, "run_turn", side_effect=turn), raises:
+        asyncio.run(ui_handlers.on_message(_user_message()))
+
+    (step,) = fake_cl.steps
+    step.send.assert_awaited_once()
+    step.update.assert_awaited_once()
+    assert isinstance(step.end, str)
+    if error:
+        assert fake_cl.messages[-1].content == error
+        fake_cl.messages[-1].send.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("runtime")
+def test_failing_step_close_is_logged(
+    fake_cl: FakeChainlit, finish_turn: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    make_step = fake_cl.cl.Step.side_effect
+
+    def failing_step(*args: Any, **kwargs: Any) -> MagicMock:
+        stp: MagicMock = make_step(*args, **kwargs)
+        stp.update.side_effect = RuntimeError("no update")
+        return stp
+
+    fake_cl.cl.Step.side_effect = failing_step
+    with (
+        patch.object(ui_handlers, "run_turn", side_effect=_tool_turn(end=False)),
+        caplog.at_level(logging.ERROR, logger=ui_handlers.__name__),
+    ):
+        asyncio.run(ui_handlers.on_message(_user_message()))
+
+    assert "no update" in caplog.text
+    finish_turn.assert_awaited_once_with(THREAD_ID)
+
+
+def test_end_of_an_unknown_run_is_ignored(fake_cl: FakeChainlit) -> None:
+    asyncio.run(ui_handlers.ToolSteps().end("unknown", "out"))
+    assert not fake_cl.steps
+
+
+async def test_tool_call_of_a_fake_provider_shows_one_step(
+    fake_cl: FakeChainlit, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The model calls the fake ``echo`` tool, then answers: one closed tool step."""
+    register_providers(monkeypatch, {"fake": new_provider()})
+
+    def script(n: int) -> AIMessage:
+        if n == 1:
+            call = {"name": "echo", "args": {"text": "ping"}, "id": "call-1"}
+            return AIMessage(content="", tool_calls=[call])
+        return AIMessage(content="done")
+
+    model = make_scripted_chat_model(script, "fake")
+    steps = ui_handlers.ToolSteps()
+    # A group the tool filter enables.
+    path = write_config_file(tmp_path, {"fake": {"group": "workspace.read"}})
+    with patch("agent_workbench.adapters.config.app_data_dir", return_value=tmp_path):
+        toolsets = build_toolsets(read_config_file(path))
+        try:
+            graph = agent.build_graph(
+                model, agent.build_tools(toolsets), InMemorySaver()
+            )
+            error = await agent.run_turn(
+                graph,
+                model,
+                LLMConfig(backend="openai", model="gpt-4o"),
+                "go",
+                THREAD_ID,
+                AsyncMock(),
+                TokenUsage(),
+                on_tool_start=steps.start,
+                on_tool_end=steps.end,
+            )
+        finally:
+            toolsets.close()
+
+    assert error is None
+    (step,) = fake_cl.steps
+    assert step.type == "tool"
+    assert step.name == "echo"
+    assert step.input == {"text": "ping"}
+    step.send.assert_awaited_once()
+    assert "echo: ping" in step.output
+    step.update.assert_awaited_once()
+    await steps.close_all()  # none left open: nothing more to close
+    step.update.assert_awaited_once()

@@ -72,9 +72,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 11: Chainlit tool steps - [step_11.md](./steps/step_11.md)
-- [ ] Implementation: `ToolSteps` in `ui_handlers.py`, wiring in `on_message` and `close_all` in `finally`, tests incl. end-to-end with a fake provider
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `ToolSteps` in `ui_handlers.py`, wiring in `on_message` and `close_all` in `finally`, tests incl. end-to-end with a fake provider
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 12: Launcher gate: build and close the toolsets before Chainlit - [step_12.md](./steps/step_12.md)
 - [ ] Implementation: `_check_toolsets` (logger clamp, build, close) and gate in `ui_launcher.main`, tests
