@@ -81,6 +81,11 @@ langchain = [
     "agent-workbench[langchain-ollama]",
 ]
 
+# Toolset providers (#17) – install shortcuts; loaded by entry point, never imported
+sql = ["mcp-tools-sql"]
+sql-mssql = ["mcp-tools-sql[mssql]"]
+workspace = ["mcp-workspace"]
+
 dev = [
     "agent-workbench[typecheck,coverage,langchain]",
     "mcp-coder",           # file-size check, workflows
@@ -288,9 +293,12 @@ DEP003 = [
     "openai", "anthropic", "google", "ollama", "pydantic",
 ]
 # DEP002: aiohttp is imported only by Chainlit's sql_alchemy module, which Chainlit
-# does not install it for.
+# does not install it for. mcp-tools-sql / mcp-workspace: toolset provider plugins
+# (extras sql / sql-mssql / workspace), loaded through entry points, never imported.
 DEP002 = [
     "aiohttp",
+    "mcp-tools-sql",
+    "mcp-workspace",
 ]
 
 [tool.mcp-tools-py]

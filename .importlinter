@@ -283,3 +283,14 @@ ignore_imports =
     agent_workbench.adapters.tool_spec -> mcp_coder_utils
     agent_workbench.adapters.user_app_data -> mcp_coder_utils
     agent_workbench.services.logging_setup -> mcp_coder_utils
+
+# Tool packages are plugins, reached only through the agent_workbench.toolsets entry points
+# (adapters.toolset_providers): no module imports one.
+[importlinter:contract:tool_packages_isolation]
+name = tool packages imported nowhere
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    mcp_tools_sql
+    mcp_workspace

@@ -62,9 +62,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 9: Toolset providers: entry-point discovery and `build_toolsets` - [step_9.md](./steps/step_9.md)
-- [ ] Implementation: `adapters/toolset_providers.py`, `Toolsets` / `build_toolsets`, shim re-exports, `tool_packages_isolation` contract, extras + DEP002 ignore, `tests/adapters/tool_fixtures.py` (fake provider), tests
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports, deptry, `tools/check_no_url_deps.py` — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `adapters/toolset_providers.py`, `Toolsets` / `build_toolsets`, shim re-exports, `tool_packages_isolation` contract, extras + DEP002 ignore, `tests/adapters/tool_fixtures.py` (fake provider), tests
+- [x] Quality checks: pylint, pytest, mypy, lint-imports, deptry, `tools/check_no_url_deps.py` — fix all issues
+- [x] Commit message prepared
 
 ### Step 10: Runtime wiring, tool filter, logger clamp, agent-loop and `mcp` tests - [step_10.md](./steps/step_10.md)
 - [ ] Implementation: `services/tool_filter.py`, `clamp_loggers`, `Runtime.toolsets`, `build_tools`, `get_runtime` / `close_runtime`, `test_tool_filter.py`, `test_agent_tools.py` (fake provider; real providers as integration), `tests/test_tool_path_no_mcp.py` (integration)
