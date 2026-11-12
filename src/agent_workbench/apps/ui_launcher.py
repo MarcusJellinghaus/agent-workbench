@@ -179,6 +179,33 @@ def _missing_dependency() -> str | None:
     return None
 
 
+def _check_toolsets() -> str | None:
+    """Build the configured toolsets once and close them; return the error text or None.
+
+    ``get_runtime`` runs only after Chainlit has started, so a broken tool setup must
+    stop the launcher here. Cheap: per the provider contract, ``build`` opens no
+    connection. Builds nothing without a ``[tools]`` table.
+
+    Returns:
+        ``"<ExceptionType>: <message>"`` when the build fails, else None.
+    """
+    from agent_workbench.adapters import config as adapters_config
+    from agent_workbench.adapters import tools, toolset_providers
+    from agent_workbench.services.logging_setup import clamp_loggers
+
+    config_file = adapters_config.read_config_file()
+    # A non-table [tools] reaches build_toolsets and fails.
+    if not config_file.tools and not config_file.tools_type_error:
+        return None
+    # The app log is already set up: keep the providers' DEBUG output out of it.
+    clamp_loggers(toolset_providers.provider_packages(config_file.tools))
+    try:
+        tools.build_toolsets(config_file).close()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def _run_chainlit(target: str) -> None:
     """Import chainlit.cli here only: it applies nest_asyncio and logging.basicConfig."""
     from chainlit.cli import run_chainlit
@@ -187,14 +214,14 @@ def _run_chainlit(target: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the chat page: dependency check, ``verify``, then Chainlit.
+    """Run the chat page: dependency check, ``verify``, toolset build, then Chainlit.
 
     Args:
         argv: Command-line arguments; defaults to ``sys.argv[1:]``.
 
     Returns:
-        Process exit code: 0 after Chainlit returns, 1 on a missing dependency or a
-        failed ``verify``.
+        Process exit code: 0 after Chainlit returns, 1 on a missing dependency, a
+        failed ``verify`` or a toolset that cannot be built.
     """
     # Ensure stdout/stderr use UTF-8 on all platforms (e.g. Windows cp1252 default).
     if hasattr(sys.stdout, "reconfigure"):
@@ -241,6 +268,11 @@ def main(argv: list[str] | None = None) -> int:
     report = run_verify()
     if report.exit_code:
         print(format_report(report))
+        return 1
+
+    error = _check_toolsets()
+    if error:
+        print(f"Building the tools failed: {error}", file=sys.stderr)
         return 1
 
     root = prepare_chainlit_env(app_data)

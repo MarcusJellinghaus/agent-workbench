@@ -77,9 +77,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 12: Launcher gate: build and close the toolsets before Chainlit - [step_12.md](./steps/step_12.md)
-- [ ] Implementation: `_check_toolsets` (logger clamp, build, close) and gate in `ui_launcher.main`, tests
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `_check_toolsets` (logger clamp, build, close) and gate in `ui_launcher.main`, tests
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 13: `verify` TOOLS section with the providers' rows - [step_13.md](./steps/step_13.md)
 - [ ] Implementation: `verify_tools(connect=...)`, `run_verify(connect_tools=...)`, `VerifyReport` fields, `compute_exit_code`, TOOLS section in `verify_formatting`, launcher passes `connect_tools=False`, tests
