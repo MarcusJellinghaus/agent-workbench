@@ -24,9 +24,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 1: Add `upstream-compat-check.yml` receiver workflow
 See [step_1.md](./steps/step_1.md)
 
-- [ ] Implementation: create `.github/workflows/upstream-compat-check.yml` (no tests — workflow only)
-- [ ] Quality checks — run format_code (pylint/pytest/mypy optional, no Python touched), fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: create `.github/workflows/upstream-compat-check.yml` (no tests — workflow only)
+- [x] Quality checks — run format_code (pylint/pytest/mypy optional, no Python touched), fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 
