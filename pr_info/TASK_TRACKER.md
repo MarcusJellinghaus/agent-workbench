@@ -21,6 +21,14 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: Add `upstream-compat-check.yml` receiver workflow
+See [step_1.md](./steps/step_1.md)
+
+- [ ] Implementation: create `.github/workflows/upstream-compat-check.yml` (no tests — workflow only)
+- [ ] Quality checks — run format_code (pylint/pytest/mypy optional, no Python touched), fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+
+- [ ] PR review: review full diff against summary.md
+- [ ] PR summary prepared
