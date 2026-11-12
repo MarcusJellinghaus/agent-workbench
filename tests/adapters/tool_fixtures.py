@@ -55,7 +55,8 @@ class FakeProvider(ToolsetProvider):
     """Provider whose ``config`` drives what it builds and verifies.
 
     Config keys: ``tools`` (tool names, default ``["echo"]``), ``group`` (default
-    ``"fake.read"``), ``async`` (async tool functions), ``fail`` (``build`` raises
+    ``"fake.read"``), ``async`` (async tool functions), ``async_tools`` (names of the
+    tools that are async, the rest sync), ``fail`` (``build`` raises
     ``ValueError``), ``close_fails`` (the toolset's ``close`` raises), ``rows``
     (``verify`` result).
     """
@@ -71,10 +72,16 @@ class FakeProvider(ToolsetProvider):
         """
         if self.config.get("fail"):
             raise ValueError(f"fake build failed: {self.config['fail']}")
-        is_async = bool(self.config.get("async", False))
+        all_async = bool(self.config.get("async", False))
+        async_tools = self.config.get("async_tools", [])
         group = self.config.get("group", "fake.read")
         specs = tuple(
-            tool_spec(_make_fn(name, is_async), group=group, read_only=True, name=name)
+            tool_spec(
+                _make_fn(name, all_async or name in async_tools),
+                group=group,
+                read_only=True,
+                name=name,
+            )
             for name in self.config.get("tools", ["echo"])
         )
         toolset = FakeToolset(specs, close_error=self.config.get("close_fails"))

@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_workbench.services.logging_setup import LOG_LEVELS, setup_logging
+from agent_workbench.services.logging_setup import (
+    LOG_LEVELS,
+    clamp_loggers,
+    setup_logging,
+)
 
 _EXPECTED_LEVELS = {
     "openai._base_client": logging.INFO,
@@ -68,6 +72,20 @@ def test_basic_config_after_setup_logging_adds_no_handler(tmp_path: Path) -> Non
     handlers = logging.getLogger().handlers[:]
     logging.basicConfig()
     assert logging.getLogger().handlers == handlers
+
+
+@pytest.mark.usefixtures("restore_levels", "restore_root_logging")
+def test_clamp_loggers_sets_info() -> None:
+    names = ["pkg_a", "pkg_b"]
+    previous = {name: logging.getLogger(name).level for name in names}
+    try:
+        setup_logging("DEBUG")
+        clamp_loggers(names)
+        for name in names:
+            assert logging.getLogger(name).level == logging.INFO, name
+    finally:
+        for name, level in previous.items():
+            logging.getLogger(name).setLevel(level)
 
 
 def test_log_levels_match_mcp_coder() -> None:

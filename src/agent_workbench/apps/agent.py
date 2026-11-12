@@ -10,6 +10,7 @@ from typing import Any
 
 import aiosqlite
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError, NodeCancelledError
 from langgraph.graph import START, MessagesState, StateGraph
@@ -19,8 +20,13 @@ from agent_workbench.adapters import config, llm
 from agent_workbench.adapters.config import load_llm_config
 from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
+from agent_workbench.adapters.tools import Toolsets, build_toolsets, to_structured_tool
+from agent_workbench.adapters.toolset_providers import provider_packages
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.logging_setup import clamp_loggers
+from agent_workbench.services.tool_call_log import wrap_spec
+from agent_workbench.services.tool_filter import enabled_specs
 
 logger = logging.getLogger(__name__)
 
@@ -126,54 +132,106 @@ async def checkpoint_wal(saver: AsyncSqliteSaver) -> None:
 
 @dataclass(frozen=True)
 class Runtime:
-    """The process-wide agent objects."""
+    """The process-wide agent objects.
+
+    ``toolsets`` is None without a ``[tools]`` table; kept for #19's Reload.
+    """
 
     graph: Any
     chat_model: Any
     llm_config: LLMConfig
     checkpointer: Any
+    toolsets: Toolsets | None = None
 
 
 _runtime: Runtime | None = None
 _runtime_lock = asyncio.Lock()
 
 
+def build_tools(toolsets: Toolsets) -> list[StructuredTool]:
+    """Return the enabled specs, logged and adapted, as LangChain tools.
+
+    Filtered before adapting, so tools that are not enabled are never bound.
+
+    Args:
+        toolsets: The built toolsets of the configured providers.
+
+    Returns:
+        One tool per enabled spec, in spec order.
+    """
+    return [to_structured_tool(wrap_spec(s)) for s in enabled_specs(toolsets.specs)]
+
+
+async def _open_runtime() -> Runtime:
+    """Build the runtime; close what was opened if a later step fails.
+
+    Returns:
+        The new runtime.
+    """
+    config_file = config.read_config_file()
+    llm_config = load_llm_config(config_file)
+    chat_model = create_chat_model(llm_config, MODEL_TIMEOUT)
+    toolsets: Toolsets | None = None
+    saver: AsyncSqliteSaver | None = None
+    try:
+        # A non-table [tools] reaches build_toolsets and raises: no silent run
+        # without tools.
+        if config_file.tools or config_file.tools_type_error:
+            # Registered names only; unknown names fail in the build.
+            clamp_loggers(provider_packages(config_file.tools))
+            toolsets = build_toolsets(config_file)
+        saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
+        tools = build_tools(toolsets) if toolsets is not None else []
+        graph = build_graph(chat_model, tools, saver)
+    except BaseException:
+        try:
+            if saver is not None:
+                await saver.conn.close()
+        finally:
+            if toolsets is not None:
+                toolsets.close()
+        raise
+    return Runtime(
+        graph=graph,
+        chat_model=chat_model,
+        llm_config=llm_config,
+        checkpointer=saver,
+        toolsets=toolsets,
+    )
+
+
 async def get_runtime() -> Runtime:
     """Process-wide runtime, created on first call.
 
     Returns:
-        The runtime shared by all chats.
+        The runtime shared by all chats. An invalid ``[tools]`` config or a
+        toolset that cannot be built raises ``ValueError``.
     """
     global _runtime  # pylint: disable=global-statement
     # Opening the checkpointer awaits: without the lock, concurrent first calls
     # would each build a runtime.
     async with _runtime_lock:
         if _runtime is None:
-            llm_config = load_llm_config()
-            chat_model = create_chat_model(llm_config, MODEL_TIMEOUT)
-            saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
-            try:
-                graph = build_graph(chat_model, [], saver)
-            except BaseException:
-                await saver.conn.close()
-                raise
-            _runtime = Runtime(
-                graph=graph,
-                chat_model=chat_model,
-                llm_config=llm_config,
-                checkpointer=saver,
-            )
+            _runtime = await _open_runtime()
     return _runtime
 
 
 async def close_runtime() -> None:
-    """Close the checkpointer's connection and drop the runtime (no-op without one)."""
+    """Close the checkpointer's connection and the toolsets; drop the runtime.
+
+    No-op without a runtime. The toolsets are closed even if closing the
+    connection raises.
+    """
     global _runtime  # pylint: disable=global-statement
     async with _runtime_lock:
         if _runtime is None:
             return
         runtime, _runtime = _runtime, None
-        await runtime.checkpointer.conn.close()
+        try:
+            await runtime.checkpointer.conn.close()
+        finally:
+            if runtime.toolsets is not None:
+                runtime.toolsets.close()
 
 
 def _last_ai_text(messages: Sequence[Any]) -> str:

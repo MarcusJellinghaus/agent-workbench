@@ -67,9 +67,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 10: Runtime wiring, tool filter, logger clamp, agent-loop and `mcp` tests - [step_10.md](./steps/step_10.md)
-- [ ] Implementation: `services/tool_filter.py`, `clamp_loggers`, `Runtime.toolsets`, `build_tools`, `get_runtime` / `close_runtime`, `test_tool_filter.py`, `test_agent_tools.py` (fake provider; real providers as integration), `tests/test_tool_path_no_mcp.py` (integration)
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports, tach — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `services/tool_filter.py`, `clamp_loggers`, `Runtime.toolsets`, `build_tools`, `get_runtime` / `close_runtime`, `test_tool_filter.py`, `test_agent_tools.py` (fake provider; real providers as integration), `tests/test_tool_path_no_mcp.py` (integration)
+- [x] Quality checks: pylint, pytest, mypy, lint-imports, tach — fix all issues
+- [x] Commit message prepared
 
 ### Step 11: Chainlit tool steps - [step_11.md](./steps/step_11.md)
 - [ ] Implementation: `ToolSteps` in `ui_handlers.py`, wiring in `on_message` and `close_all` in `finally`, tests incl. end-to-end with a fake provider

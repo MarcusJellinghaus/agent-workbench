@@ -1,6 +1,7 @@
 """Logging setup: mcp_coder_utils logging plus LLM-related third-party suppression."""
 
 import logging
+from collections.abc import Iterable
 
 from mcp_coder_utils.log_utils import setup_logging as _upstream_setup_logging
 
@@ -33,3 +34,13 @@ def setup_logging(
     # WARNING level
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def clamp_loggers(names: Iterable[str]) -> None:
+    """Set each named logger to ``INFO``: tool packages log parameters and results at DEBUG.
+
+    Args:
+        names: Logger names, e.g. the top-level packages of the configured providers.
+    """
+    for name in names:
+        logging.getLogger(name).setLevel(logging.INFO)
