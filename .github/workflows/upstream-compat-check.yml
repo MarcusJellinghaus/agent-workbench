@@ -1,0 +1,40 @@
+name: Upstream compat check
+
+# Triggered by repository_dispatch when mcp-coder-utils' main branch changes.
+# Runs mypy --strict against the latest mcp-coder-utils main to detect
+# interface breaks.
+# On failure: standard GitHub Actions email + red icon in the Actions tab.
+
+on:
+  repository_dispatch:
+    types: [upstream-main-updated]
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: 'Upstream that triggered this run (shown in the job name)'
+        required: false
+        default: 'manual'
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-compat:
+    name: upstream-compat-${{ github.event.client_payload.upstream || github.event.inputs.upstream || github.event_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.11
+
+      # Upstream specs come from [tool.mcp-coder.install-from-github] and are
+      # installed in the same call as .[typecheck], so uv keeps the git versions.
+      - name: Install upstream packages from main and agent-workbench
+        run: |
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[typecheck]"
+
+      - name: Run mypy --strict
+        run: mypy --strict src tests
