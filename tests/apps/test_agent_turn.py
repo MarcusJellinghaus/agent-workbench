@@ -1,7 +1,8 @@
 """``run_turn``: streaming, final-message fallback, limits, timeouts, errors, Stop, usage."""
 
 import asyncio
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Self
 from unittest.mock import patch
 
 import pytest
@@ -9,6 +10,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import NodeCancelledError
 
@@ -22,10 +24,17 @@ LLM_CONFIG = LLMConfig(backend="openai", model="gpt-4o")
 
 
 class _StallingModel(BaseChatModel):  # type: ignore[misc]
-    """Chat model whose call never returns; ``entered`` is set once it is waiting."""
+    """Chat model returning ``replies`` in order, then never returning.
+
+    ``entered`` is set once it is waiting.
+    """
 
     entered: Any = None
     raise_exc: Any = None
+    replies: list[AIMessage] = []
+
+    def bind_tools(self, tools: Any, **kw: Any) -> Self:
+        return self
 
     def _generate(self, *args: Any, **kwargs: Any) -> ChatResult:
         raise NotImplementedError("stalling model implements _agenerate")
@@ -33,6 +42,8 @@ class _StallingModel(BaseChatModel):  # type: ignore[misc]
     async def _agenerate(self, *args: Any, **kwargs: Any) -> ChatResult:
         if self.raise_exc is not None:
             raise self.raise_exc
+        if self.replies:
+            return ChatResult(generations=[ChatGeneration(message=self.replies.pop(0))])
         if self.entered is not None:
             self.entered.set()
         await asyncio.Event().wait()
@@ -63,8 +74,8 @@ class _RecordingModel(BaseChatModel):  # type: ignore[misc]
         return "recording"
 
 
-def _graph(model: Any) -> Any:
-    return agent.build_graph(model, [], InMemorySaver())
+def _graph(model: Any, tools: Sequence[Any] = ()) -> Any:
+    return agent.build_graph(model, tools, InMemorySaver())
 
 
 async def _turn(
@@ -73,7 +84,7 @@ async def _turn(
     text: str,
     collected: list[str],
     token_usage: TokenUsage | None = None,
-    **timeouts: float,
+    **kwargs: Any,
 ) -> str | None:
     async def on_text(delta: str) -> None:
         collected.append(delta)
@@ -86,13 +97,141 @@ async def _turn(
         "thread-1",
         on_text,
         token_usage if token_usage is not None else TokenUsage(),
-        **timeouts,
+        **kwargs,
     )
 
 
-def _tool_call(n: int) -> AIMessage:
-    call = {"name": "missing", "args": {}, "id": f"call-{n}"}
+def _tool_call(n: int, name: str = "missing", **args: Any) -> AIMessage:
+    call = {"name": name, "args": args, "id": f"call-{n}"}
     return AIMessage(content="", tool_calls=[call])
+
+
+def _call_then_answer(name: str, **args: Any) -> Any:
+    """Scripted model calling tool *name* once, then answering "done"."""
+
+    def script(n: int) -> AIMessage:
+        return _tool_call(n, name, **args) if n == 1 else AIMessage(content="done")
+
+    return make_scripted_chat_model(script, "fake")
+
+
+class _Recorder:
+    """Records the tool callbacks as ``(kind, run_id, ...)`` tuples."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    async def on_tool_start(self, run_id: str, name: str, args: dict[str, Any]) -> None:
+        self.calls.append(("start", run_id, name, args))
+
+    async def on_tool_end(self, run_id: str, output: str) -> None:
+        self.calls.append(("end", run_id, output))
+
+
+async def _slow(text: str) -> str:
+    """Sleep 0.3 s, then return *text*."""
+    await asyncio.sleep(0.3)
+    return text
+
+
+def _echo(text: str) -> str:
+    """Return *text* unchanged."""
+    return text
+
+
+def _fail(text: str) -> str:
+    """Raise ``ValueError("boom")``."""
+    raise ValueError("boom")
+
+
+slow = StructuredTool.from_function(coroutine=_slow, name="slow")
+echo = StructuredTool.from_function(_echo, name="echo")
+fail = StructuredTool.from_function(_fail, name="fail")
+
+
+async def test_tool_run_pauses_the_idle_timer() -> None:
+    model = _call_then_answer("slow", text="x")
+    collected: list[str] = []
+    message = await _turn(
+        _graph(model, [slow]),
+        model,
+        "hi",
+        collected,
+        idle_timeout=0.1,
+        overall_timeout=5,
+    )
+    assert message is None
+    assert collected == ["done"]
+
+
+async def test_stalling_model_after_a_tool_hits_the_idle_limit() -> None:
+    model = _StallingModel(replies=[_tool_call(1, "echo", text="x")])
+    with patch.object(llm, "map_provider_error") as spy:
+        message = await _turn(
+            _graph(model, [echo]), model, "hi", [], idle_timeout=0.1, overall_timeout=5
+        )
+    assert message == agent._IDLE_MSG.format(s=0.1)
+    spy.assert_not_called()
+
+
+async def test_tool_callbacks_fire_once_with_the_same_run_id() -> None:
+    model = _call_then_answer("echo", text="hello")
+    recorder = _Recorder()
+    message = await _turn(
+        _graph(model, [echo]),
+        model,
+        "hi",
+        [],
+        on_tool_start=recorder.on_tool_start,
+        on_tool_end=recorder.on_tool_end,
+    )
+    assert message is None
+    run_id = recorder.calls[0][1]
+    assert recorder.calls == [
+        ("start", run_id, "echo", {"text": "hello"}),
+        ("end", run_id, "hello"),
+    ]
+
+
+async def test_failing_tool_emits_tool_error_as_end() -> None:
+    model = _call_then_answer("fail", text="x")
+    recorder = _Recorder()
+    message = await _turn(
+        _graph(model, [fail]),
+        model,
+        "hi",
+        [],
+        on_tool_start=recorder.on_tool_start,
+        on_tool_end=recorder.on_tool_end,
+    )
+    assert message is None
+    # The tool raises, so langchain_core emits on_tool_error (no on_tool_end); the
+    # ToolNode then turns the exception into an error ToolMessage.
+    run_id = recorder.calls[0][1]
+    assert recorder.calls == [
+        ("start", run_id, "fail", {"text": "x"}),
+        ("end", run_id, "boom"),
+    ]
+
+
+async def test_stop_while_a_tool_awaits_propagates_cancel() -> None:
+    entered = asyncio.Event()
+
+    async def _wait(text: str) -> str:
+        """Wait forever."""
+        entered.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    wait = StructuredTool.from_function(coroutine=_wait, name="wait")
+    model = _call_then_answer("wait", text="x")
+    with patch.object(llm, "map_provider_error") as spy:
+        task = asyncio.create_task(_turn(_graph(model, [wait]), model, "hi", []))
+        await asyncio.wait_for(entered.wait(), 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    spy.assert_not_called()
 
 
 async def test_plain_answer_arrives_once() -> None:

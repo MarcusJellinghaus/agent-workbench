@@ -1,9 +1,9 @@
 """Chainlit environment cleanup and ``config.toml`` writer of the UI launcher."""
 
-import importlib
 import logging
 import os
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -18,7 +18,6 @@ from agent_workbench.apps.ui_launcher import (
     write_chainlit_config,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the value the launcher must refuse
 
 
@@ -165,7 +164,8 @@ def test_written_config_loaded_by_chainlit() -> None:
     assert settings["ui"].name == "agent-workbench"
 
 
-def test_repo_root_untouched_by_chainlit_import() -> None:
-    importlib.import_module("chainlit.config")
-    assert not (REPO_ROOT / ".chainlit").exists()
-    assert not (REPO_ROOT / ".files").exists()
+def test_repo_root_untouched_by_chainlit_import(
+    chainlit_dirs_before_and_now: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    before, now = chainlit_dirs_before_and_now
+    assert now == before

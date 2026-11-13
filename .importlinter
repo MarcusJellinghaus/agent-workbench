@@ -92,6 +92,7 @@ forbidden_modules =
 ignore_imports =
     agent_workbench.adapters.langchain._usage -> agent_workbench.adapters.llm_types
     agent_workbench.adapters.langchain._provider_checks -> agent_workbench.adapters.config_hints
+    agent_workbench.adapters.langchain._provider_checks -> agent_workbench.adapters.redaction
 
 [importlinter:contract:langchain_model_layer_ancestors]
 name = LangChain Model Layer No Ancestor Imports
@@ -269,13 +270,27 @@ forbidden_modules =
 ignore_imports =
     agent_workbench.adapters.** -> httpx
 
+# mcp_coder_utils: only the four shim modules import mcp_coder_utils; everything else uses them.
 [importlinter:contract:mcp_coder_utils_isolation]
-name = mcp_coder_utils only in adapters and services
+name = mcp_coder_utils only through the shims
 type = forbidden
 source_modules =
     agent_workbench
 forbidden_modules =
     mcp_coder_utils
 ignore_imports =
-    agent_workbench.adapters.** -> mcp_coder_utils
-    agent_workbench.services.** -> mcp_coder_utils
+    agent_workbench.adapters.redaction -> mcp_coder_utils
+    agent_workbench.adapters.tool_spec -> mcp_coder_utils
+    agent_workbench.adapters.user_app_data -> mcp_coder_utils
+    agent_workbench.services.logging_setup -> mcp_coder_utils
+
+# Tool packages are plugins, reached only through the agent_workbench.toolsets entry points
+# (adapters.toolset_providers): no module imports one.
+[importlinter:contract:tool_packages_isolation]
+name = tool packages imported nowhere
+type = forbidden
+source_modules =
+    agent_workbench
+forbidden_modules =
+    mcp_tools_sql
+    mcp_workspace

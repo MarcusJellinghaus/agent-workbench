@@ -13,6 +13,7 @@ from typing import Any
 import chainlit as cl
 from chainlit.data import get_data_layer
 from chainlit.server import app
+from chainlit.utils import utc_now
 
 from agent_workbench.apps.agent import (
     close_runtime,
@@ -24,12 +25,53 @@ from agent_workbench.apps.origin_check import OriginCheckMiddleware, local_origi
 from agent_workbench.apps.ui_data_layer import SessionDataLayer
 from agent_workbench.apps.ui_launcher import chainlit_port
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.tool_call_log import truncate_text
 
 logger = logging.getLogger(__name__)
+
+TOOL_OUTPUT_CHARS = 2000  # characters of a tool result shown in its step
 
 app.add_middleware(
     OriginCheckMiddleware, allowed_origins=local_origins(chainlit_port())
 )
+
+
+class ToolSteps:
+    """The open ``cl.Step(type="tool")`` objects of one turn, by run id.
+
+    The data layer persists the steps in ``chainlit.sqlite``.
+    """
+
+    def __init__(self) -> None:
+        self._open: dict[str, cl.Step] = {}
+
+    async def start(self, run_id: str, name: str, args: dict[str, Any]) -> None:
+        """Open and send a tool step showing *args*."""
+        step = cl.Step(name=name, type="tool")
+        step.input = args
+        step.start = utc_now()
+        await step.send()
+        self._open[run_id] = step
+
+    async def end(self, run_id: str, output: str) -> None:
+        """Set the truncated *output* and close the step (unknown run id: no-op)."""
+        step = self._open.pop(run_id, None)
+        if step is None:
+            return
+        step.output = truncate_text(output, TOOL_OUTPUT_CHARS)
+        step.end = utc_now()
+        await step.update()
+
+    async def close_all(self) -> None:
+        """Close every step still open; logs, never raises.
+
+        A failed or stopped tool may emit no end event.
+        """
+        for run_id in list(self._open):
+            try:
+                await self.end(run_id, "")
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.exception("Closing the tool step of run %s failed", run_id)
 
 
 @cl.data_layer  # type: ignore[untyped-decorator]  # chainlit is follow_imports=skip
@@ -83,11 +125,13 @@ async def on_message(message: cl.Message | None) -> None:
     """Run one agent turn for *message* and stream the answer into the page.
 
     Stop cancels this task: Chainlit posts its own notice, so nothing is caught here.
-    However the turn ends, a thread deleted meanwhile is deleted again.
+    Each tool call shows as a step. However the turn ends, the steps still open are
+    closed and a thread deleted meanwhile is deleted again.
     """
     if message is None:  # edit_message is off in config.toml; never fail on it
         return
     thread_id = cl.context.session.thread_id
+    steps = ToolSteps()
     try:
         runtime = await get_runtime()
         # One TokenUsage per chat: "New chat" starts a new user session.
@@ -102,6 +146,8 @@ async def on_message(message: cl.Message | None) -> None:
             thread_id,
             answer.stream_token,
             usage,
+            on_tool_start=steps.start,
+            on_tool_end=steps.end,
         )
         if error:
             if answer.content:
@@ -112,6 +158,7 @@ async def on_message(message: cl.Message | None) -> None:
             await answer.stream_token(f"\n\n{usage.display_text()}")
         await answer.send()
     finally:
+        await steps.close_all()
         await _finish_turn(thread_id)
 
 

@@ -1,6 +1,6 @@
 # agent-workbench Security Design
 
-**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI, sessions)
+**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI, sessions, tools and tool-call log; permissions planned)
 **Maintainer**: Marcus Jellinghaus
 
 Reporting vulnerabilities: see [`SECURITY.md`](../../SECURITY.md). Architecture: [`docs/architecture/architecture.md`](../architecture/architecture.md).
@@ -44,6 +44,7 @@ The model never gets a database connection or credentials. It can only request a
 
 - **Rule**: only providers approved for the classification of the data in use may be configured – e.g. a local model (Ollama) or the company's own endpoint.
 - **Minimisation through default permission modes**: schema / table / column read and `validate_sql` are `allow`; profiling tools, `query_*` and update tools are `deny` until the user enables them. Workspace read and write are `allow`.
+- **Tool errors**: the graph runs tools with `handle_tool_errors=True`, so the exception text of a failed tool goes to the provider as the tool's result.
 - Which provider is approved is a policy decision outside this repository.
 
 ---
@@ -69,7 +70,8 @@ The model never gets a database connection or credentials. It can only request a
 
 - The model drafts SQL in the chat or as a workspace file and checks it with `validate_sql`.
 - The user adds approved queries to the mcp-tools-sql query config, sets their permission mode and presses Reload.
-- Workspace guard: the toolset is not built if the configured workspace contains `~/.agent_workbench/` (config, permissions, logs, sessions) or the mcp-tools-sql config files, so the model can neither approve its own queries nor change its permissions.
+- Workspace guard: planned in mcp-workspace, not implemented – known gap. Nothing stops a configured workspace from containing `~/.agent_workbench/` (config, permissions, logs, sessions) or the mcp-tools-sql config files; keeping them apart is up to the user's configuration.
+- Known gap: an mcp-tools-sql query config inside the workspace (e.g. a `pyproject.toml` with `[tool.mcp-tools-sql]`) is writable by the model, which could then add its own queries.
 
 ### 4.4 Workspace
 
@@ -81,20 +83,21 @@ The model never gets a database connection or credentials. It can only request a
 
 - No database password: Windows authentication.
 - LLM API keys come from environment variables or the user config, never from the workspace folder.
-- Secrets in log lines are redacted (`mcp_coder_utils.redaction`).
+- Secrets in log lines are redacted (`mcp_coder_utils.redaction`). In tool-call log lines, the `services` redactor replaces the values of keys containing one of `SENSITIVE_KEY_PATTERNS` (case-insensitive substring, recursive through dicts and lists); secrets inside free text are not detected.
 - Chainlit reads no `.env` file: its env file is pointed at a never-created file in its app root. Chainlit credential and integration env vars (database, Literal AI, Slack / Discord / Teams, custom auth, auth cookie, root path, SSL) are removed before Chainlit is imported.
 - `<app-data>/chainlit_auth_secret` is a credential: it signs Chainlit's session tokens. Generated on first run (`secrets.token_urlsafe(48)`) and reused; it wins over a `CHAINLIT_AUTH_SECRET` env var (a different env value is replaced with a warning that names neither value).
 
 ### 4.6 Limits
 
 - At most 50 agent steps per turn (LangGraph `recursion_limit`); a `GraphRecursionError` is shown as a message.
-- 300 s inactivity per turn (no stream event) and 3600 s overall per turn.
+- 300 s inactivity per turn (no stream event), paused while tools run, and 3600 s overall per turn.
 - Chat model HTTP timeout 300 s.
 - Token usage per turn and per session is shown in the UI. No budgets.
 
 ### 4.7 Dependencies
 
 - Core dependencies are kept minimal; LLM providers and tool packages are optional extras, imported only when configured.
+- Tool plugins: any installed package registering an `agent_workbench.toolsets` entry point can supply tools once its `[tools.<name>]` table is configured. Trust is what the user installs and configures; agent-workbench imports no tool package by name.
 - Chainlit itself depends on the `mcp` SDK, so it is installed; the MCP feature is off in the generated Chainlit config, the app uses no MCP and the tool path never imports it (tested). Making mcp-workspace's Git / GitHub libraries optional is planned but not required; until then they are installed (unused while those tools are `deny`).
 - Session store: `langgraph-checkpoint-sqlite` (in `[langchain-base]`), `sqlalchemy[asyncio]`, `aiosqlite` and `aiohttp` (core); the floors of the checkpointer and `aiohttp` lie above their known advisories. `aiohttp` is imported only by Chainlit's data layer, never by our code.
 - Dependabot and OpenSSF Scorecard run on the repository.
@@ -105,10 +108,13 @@ The model never gets a database connection or credentials. It can only request a
 
 | Store | Content | Location | Retention |
 |---|---|---|---|
-| Tool-call log | One line per call: user, tool, parameters, result size, duration. No results. Secrets redacted. | User app-data folder | Until deleted |
-| Session database | Full conversations including tool results; feedback ratings and comments if the thumbs buttons are used | `<app-data>/sessions/`: `checkpoints.sqlite` (LangGraph checkpointer), `chainlit.sqlite` (Chainlit data layer) | Until the user deletes the session in the UI |
+| Tool-call log | One JSON line per call: user, tool, parameters (strings cut at 200 characters, secret keys redacted), outcome, result size, duration. No results. May contain parameter data. | `<app-data>/logs/tool_calls.jsonl` | None – kept until deleted |
+| App log | `agent-workbench-ui` log, one file per run; tool packages' loggers clamped to `INFO`, whose lines may still contain file paths and error texts | `<app-data>/logs/agent_workbench_ui_*.log` | None – kept until deleted |
+| Session database | Full conversations including tool results; tool steps (arguments, results truncated to 2000 characters); feedback ratings and comments if the thumbs buttons are used | `<app-data>/sessions/`: `checkpoints.sqlite` (LangGraph checkpointer), `chainlit.sqlite` (Chainlit data layer, incl. the tool steps) | Until the user deletes the session in the UI |
 
-Both stores lie outside the workspace folder, so the model cannot read them back through the workspace tools.
+Logging strategy and the tool-call log in detail: [architecture §6, "Logging and retention"](../architecture/architecture.md#logging-and-retention).
+
+All stores lie outside the workspace folder by configuration, not enforced – known gap (see §4.3, workspace guard). A workspace configured to contain the app-data folder lets the model read them back through the workspace tools.
 
 Chainlit's app root (`.chainlit/`, `.files/`) is `chainlit/` in the user app-data folder; the session databases are outside it, since Chainlit deletes `.files/` on shutdown. Only our own SQLite data layer is active; `DATABASE_URL` and Literal AI are removed.
 
@@ -130,11 +136,11 @@ Sessions:
 | 2 | Data leaves the machine through the LLM provider | Approved providers only; data minimisation through default modes | Data returned by allowed tools (schema, file contents) always reaches the provider |
 | 3 | Model changes data in the database | No free-SQL tool; updates only through configured `updates.*` statements enabled by the user; `validate_sql` only runs EXPLAIN | An update tool set to `allow` can be called with any parameter values; use `ask` for updates |
 | 4 | Model-written SQL fragments in profiling tools | mcp-tools-sql read-only gates; profiling `deny` by default | Depends on the correctness of the mcp-tools-sql gates |
-| 5 | Model approves its own queries or permissions | Workspace guard: the toolset is not built if the workspace contains `~/.agent_workbench/` or the mcp-tools-sql config files; `verify` reports it | – |
+| 5 | Model approves its own queries or permissions | Configuration only: keep `~/.agent_workbench/` and the mcp-tools-sql config files outside the workspace. Workspace guard: planned in mcp-workspace, not implemented – known gap | A workspace that contains these files lets the model change them, e.g. an mcp-tools-sql query config in a workspace `pyproject.toml` (`[tool.mcp-tools-sql]`) |
 | 6 | Path traversal out of the workspace | `normalize_path` in mcp-workspace (rejects `..`, resolves symlinks) | If path resolution fails, the containment check is skipped (documented gap in mcp-workspace) |
 | 7 | Credentials leak (database, LLM API key) | Windows authentication; API key from environment / user config; log redaction | Secrets stored in the data itself can reach the provider through tool results |
 | 8 | Expensive or long-running queries, huge files | Step limit per turn; output row limits; planned: statement timeout and fetch limit in mcp-tools-sql, maximum read size in mcp-workspace | Until those land, a slow query blocks the turn and a large file goes to the provider in full |
-| 9 | Sensitive data in logs and sessions | Tool-call log without results; stores in the user app-data folder, which the workspace guard keeps out of the workspace; `secure_delete` and a WAL checkpoint when a session is deleted | Sessions with data are kept without time limit, protected only by the user profile. Header auth signs in anything that reaches `127.0.0.1:<port>`, so any local process – on a shared Windows host also other OS users – can read stored conversations through the page; the origin check only stops browsers. Accepted for M1 |
+| 9 | Sensitive data in logs and sessions | Tool-call log without results; stores in the user app-data folder, outside the workspace by configuration (workspace guard: planned in mcp-workspace, not implemented – known gap); `secure_delete` and a WAL checkpoint when a session is deleted | Sessions with data, the app log and the tool-call log are kept without time limit, protected only by the user profile. Header auth signs in anything that reaches `127.0.0.1:<port>`, so any local process – on a shared Windows host also other OS users – can read stored conversations through the page; the origin check only stops browsers. Accepted for M1 |
 | 10 | Compromised dependency | Minimal core, optional extras, pinned minimum versions, Dependabot, Scorecard | The LangChain / Chainlit ecosystem is large |
 
 ---

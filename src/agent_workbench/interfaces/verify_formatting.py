@@ -163,6 +163,8 @@ def format_report(report: VerifyReport) -> str:
         pad("CONFIG"),
         format_row("Config path", "", str(report.config_path), indent=2),
         format_config_section(report.config_entries),
+        pad("TOOLS"),
+        format_config_section(report.tools_entries),
         pad("LLM PROVIDER"),
         format_row(
             "Active provider",

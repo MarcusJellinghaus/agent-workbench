@@ -3,7 +3,7 @@
 Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
 Status: LLM core (config, `verify`, `prompt`) and a chat UI (`agent-workbench-ui`, with
-saved sessions, no tools yet). See
+saved sessions and tools: SQL schema tools and `validate_sql`, workspace read / write). See
 [docs/architecture/architecture.md](docs/architecture/architecture.md) for the design and
 roadmap.
 
@@ -20,6 +20,12 @@ pip install -e ".[langchain]"
 `[langchain]` installs all providers. For one provider only, use its extra instead:
 `".[langchain-openai]"`, `".[langchain-anthropic]"`, `".[langchain-gemini]"` or
 `".[langchain-ollama]"`.
+
+Tool packages are plugins. Extras for the two current ones: `[sql]` (mcp-tools-sql),
+`[sql-mssql]` (with the SQL Server driver) and `[workspace]` (mcp-workspace), e.g.
+`pip install -e ".[langchain,sql-mssql,workspace]"`. They are install shortcuts only: any
+installed package that registers an `agent_workbench.toolsets` entry point works the same
+way.
 
 ### Development setup
 
@@ -55,6 +61,29 @@ Precedence per key:
 
 For the API key, the vendor env var beats `api_key`. Nothing is read from a workspace folder.
 
+### Tools
+
+Each `[tools.<name>]` table selects the toolset provider `<name>` and is passed to it
+unchanged.
+
+```toml
+[tools.sql]                 # provider "sql" (mcp-tools-sql)
+query_config = "C:/Users/me/.mcp-tools-sql/queries.toml"
+# database_config = "..."   # optional; package default
+
+[tools.workspace]           # provider "workspace" (mcp-workspace)
+project_dir = "C:/Users/me/work/reports"
+```
+
+- No `[tools]` table → no tools.
+- Keys and path rules belong to the provider. Both current providers require absolute
+  paths (`~` allowed) and warn on unknown keys. `verify` shows the provider's checks.
+- Another toolset package: install it and add its table. Writing one: see the
+  [mcp-coder-utils README](https://github.com/MarcusJellinghaus/mcp-coder-utils)
+  (toolset provider contract).
+- Keep the mcp-tools-sql query config outside the workspace – the model can write files
+  there.
+
 ## `agent-workbench verify`
 
 Checks the setup and sends a live test prompt.
@@ -65,12 +94,16 @@ agent-workbench verify --check-models
 agent-workbench --log-level DEBUG verify
 ```
 
-Sections: CONFIG, LLM PROVIDER, EFFECTIVE CONFIG, LLM PROVIDER DETAILS (ending with the
-test prompt) and, when provider packages are missing, INSTALL INSTRUCTIONS.
+Sections: CONFIG, TOOLS (the toolset providers' own checks), LLM PROVIDER, EFFECTIVE
+CONFIG, LLM PROVIDER DETAILS (ending with the test prompt) and, when provider packages are
+missing, INSTALL INSTRUCTIONS.
 
 - `--check-models` also lists the backend's available models. Advisory: it does not
   affect the exit code.
-- Exit code 0 when the config, the provider checks and the test prompt all pass; else 1.
+- TOOLS checks may connect (e.g. to the database); the UI start runs them without
+  connecting.
+- Exit code 0 when the config, the provider checks, the test prompt and the TOOLS checks
+  all pass; else 1.
 - `--log-level DEBUG` shows connection diagnostics when the test prompt fails.
 
 ## `agent-workbench prompt "<text>"`
@@ -87,7 +120,8 @@ agent-workbench prompt --timeout 120 "..."
 
 ## `agent-workbench-ui`
 
-Opens a local chat page with the configured LLM (LangGraph agent, no tools yet).
+Opens a local chat page with the configured LLM (LangGraph agent with the configured
+tools).
 
 ```bat
 agent-workbench-ui
@@ -97,16 +131,22 @@ agent-workbench-ui --log-level DEBUG
 - Start: checks that `langgraph`, `langgraph.checkpoint.sqlite`, `langchain_core`, `greenlet`
   and `aiohttp` are installed (else: `pip install "agent-workbench[langchain]"`), then runs
   the full `verify` including the test prompt. On failure it prints the verify report and
-  exits with code 1.
+  exits with code 1. Then it builds the configured toolsets once and closes them; a build
+  error stops the start.
 - Serves on `http://127.0.0.1:8000` only and opens the browser. `CHAINLIT_PORT` changes the
   port; `CHAINLIT_HOST` is always forced to `127.0.0.1`.
 - Chainlit's files (`.chainlit/config.toml`, rewritten on every start, and `.files/`) live in
   `%USERPROFILE%\.agent_workbench\chainlit`. No `.env` file is read. Chainlit env vars for
   features the app does not configure (database, Literal AI, Slack / Discord / Teams, custom
   auth, auth cookie, root path, SSL) are ignored with a warning.
-- Limits per turn: 50 agent steps, 300 s without a stream event, 3600 s overall. Token usage
-  is shown after each answer; the Stop button cancels the turn.
-- `--log-level` – as for `agent-workbench`.
+- Limits per turn: 50 agent steps, 300 s without a stream event (paused while tools run),
+  3600 s overall. Token usage is shown after each answer; the Stop button cancels the turn.
+- Tool calls appear as steps with their arguments and a truncated result.
+- `--log-level` – level of the app log, default `INFO`. App log:
+  `%USERPROFILE%\.agent_workbench\logs\agent_workbench_ui_<timestamp>.log`, one per run;
+  the console shows `OUTPUT` and above.
+- Tool-call log: `%USERPROFILE%\.agent_workbench\logs\tool_calls.jsonl`, one line per call
+  (user, tool, parameters, outcome, result size, duration; no results).
 
 ### Sessions
 

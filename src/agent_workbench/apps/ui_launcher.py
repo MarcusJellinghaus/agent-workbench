@@ -10,11 +10,16 @@ import logging
 import os
 import secrets
 import sys
+from datetime import datetime
 from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_workbench.apps.origin_check import local_origins
+
+if TYPE_CHECKING:
+    from agent_workbench.adapters.config import ConfigFile
 
 logger = logging.getLogger(__name__)
 
@@ -164,11 +169,41 @@ def write_chainlit_config(app_root: Path, port: int) -> Path:
     return path
 
 
+def app_log_file(app_data: Path) -> Path:
+    """Return ``<app_data>/logs/agent_workbench_ui_<YYYYmmdd_HHMMSS>.log``."""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return app_data / "logs" / f"agent_workbench_ui_{stamp}.log"
+
+
 def _missing_dependency() -> str | None:
     """Return the first module of ``_UI_DEPENDENCIES`` that is not installed, or None."""
     for name in _UI_DEPENDENCIES:
         if find_spec(name) is None:
             return name
+    return None
+
+
+def _check_toolsets(config_file: "ConfigFile") -> str | None:
+    """Build the configured toolsets once and close them; return the error text or None.
+
+    ``get_runtime`` runs only after Chainlit has started, so a broken tool setup must
+    stop the launcher here. Cheap: per the provider contract, ``build`` opens no
+    connection. Builds nothing without a ``[tools]`` table.
+
+    Args:
+        config_file: The read config file.
+
+    Returns:
+        ``"<ExceptionType>: <message>"`` when the build fails, else None.
+    """
+    from agent_workbench.apps.tool_setup import build_configured_toolsets
+
+    try:
+        toolsets = build_configured_toolsets(config_file)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return f"{type(exc).__name__}: {exc}"
+    if toolsets is not None:
+        toolsets.close()
     return None
 
 
@@ -180,14 +215,14 @@ def _run_chainlit(target: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the chat page: dependency check, ``verify``, then Chainlit.
+    """Run the chat page: dependency check, ``verify``, toolset build, then Chainlit.
 
     Args:
         argv: Command-line arguments; defaults to ``sys.argv[1:]``.
 
     Returns:
-        Process exit code: 0 after Chainlit returns, 1 on a missing dependency or a
-        failed ``verify``.
+        Process exit code: 0 after Chainlit returns, 1 on a missing dependency, a
+        failed ``verify`` or a toolset that cannot be built.
     """
     # Ensure stdout/stderr use UTF-8 on all platforms (e.g. Windows cp1252 default).
     if hasattr(sys.stdout, "reconfigure"):
@@ -204,12 +239,16 @@ def main(argv: list[str] | None = None) -> int:
         "--log-level",
         type=str.upper,
         choices=LOG_LEVELS,
-        default="OUTPUT",
+        default="INFO",
         metavar="LEVEL",
-        help=f"logging level: {', '.join(LOG_LEVELS)} (default: OUTPUT)",
+        help=f"logging level of the app log: {', '.join(LOG_LEVELS)} (default: INFO)",
     )
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+
+    from agent_workbench.adapters.config import app_data_dir
+
+    app_data = app_data_dir()
+    setup_logging(args.log_level, str(app_log_file(app_data)), console_level="OUTPUT")
 
     from agent_workbench.adapters.ssl_setup import ensure_truststore
 
@@ -224,17 +263,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    from agent_workbench.adapters.config import read_config_file
+    from agent_workbench.apps.tool_setup import clamp_provider_loggers
     from agent_workbench.interfaces.verify_formatting import format_report
     from agent_workbench.services.verify import run_verify
 
-    report = run_verify()
+    # Before verify loads the providers: keep their DEBUG output out of the app log.
+    # Not earlier: tool_setup imports langchain_core, checked by _missing_dependency.
+    config_file = read_config_file()
+    clamp_provider_loggers(config_file)
+
+    # A tool backend that is down must not block the start: no tool connections.
+    report = run_verify(connect_tools=False)
     if report.exit_code:
         print(format_report(report))
         return 1
 
-    from agent_workbench.adapters.config import app_data_dir
+    error = _check_toolsets(config_file)
+    if error:
+        print(f"Building the tools failed: {error}", file=sys.stderr)
+        return 1
 
-    root = prepare_chainlit_env(app_data_dir())
+    root = prepare_chainlit_env(app_data)
     write_chainlit_config(root, chainlit_port())
     _run_chainlit(str(Path(__file__).with_name("ui_target.py")))
     return 0
