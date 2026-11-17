@@ -247,3 +247,6 @@ memory/
 # Chainlit artifacts written when Chainlit runs from the repo root
 /.chainlit/
 /.files/
+
+# Scratch files for LLM sessions: MCP-writable via .mcp-file-access, never committed
+.scratch/
