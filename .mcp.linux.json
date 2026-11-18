@@ -8,8 +8,6 @@
         "${MCP_CODER_PROJECT_DIR}",
         "--python-executable",
         "${VIRTUAL_ENV}/bin/python",
-        "--venv-path",
-        "${VIRTUAL_ENV}",
         "--test-folder",
         "tests",
         "--log-level",
@@ -43,7 +41,9 @@
         "--reference-project",
         "name=mcp-tools-sql,path=${HOME}/Documents/GitHub/mcp-tools-sql,url=https://github.com/MarcusJellinghaus/mcp-tools-sql",
         "--reference-project",
-        "name=AutoRunner,path=${HOME}/Documents/GitHub/AutoRunner,url=https://github.com/MarcusJellinghaus/AutoRunner"
+        "name=AutoRunner,path=${HOME}/Documents/GitHub/AutoRunner,url=https://github.com/MarcusJellinghaus/AutoRunner",
+        "--reference-project",
+        "name=obsidian-dev-wiki,path=${HOME}/Documents/GitHub/obsidian-dev-wiki,url=https://github.com/MarcusJellinghaus/obsidian-dev-wiki"
       ],
       "env": {
         "PYTHONPATH": "${MCP_CODER_VENV_DIR}/lib"
