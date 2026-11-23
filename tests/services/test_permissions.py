@@ -1,5 +1,6 @@
 """Tests for the ``[permissions]`` parser and resolver."""
 
+import tomllib
 from typing import Any
 
 import pytest
@@ -121,6 +122,35 @@ def test_unquoted_dotted_key_lists_every_sub_key() -> None:
     message = rows[0][2]
     assert '"workspace.read"' in message
     assert '"workspace.write"' in message
+
+
+def test_three_level_dotted_key_suggests_the_full_path() -> None:
+    table = tomllib.loads('[permissions]\na.b.c = "allow"\n')["permissions"]
+    config, rows = parse_permissions(table, None, TOOLS)
+    assert config.entries == {}
+    assert len(rows) == 1
+    label, status, message = rows[0]
+    assert (label, status) == (LABEL, "error")
+    assert message.startswith("a ")
+    assert '"a.b.c" = ...' in message
+    assert '"a.b" = ...' not in message
+
+
+def test_quoted_key_with_inline_table_is_not_called_unquoted() -> None:
+    table = tomllib.loads('[permissions]\n"x" = { y = "allow" }\n')["permissions"]
+    config, rows = parse_permissions(table, None, TOOLS)
+    assert config.entries == {}
+    assert len(rows) == 1
+    label, status, message = rows[0]
+    assert (label, status) == (LABEL, "error")
+    assert message.startswith("x ")
+    assert "nested table, not a mode" in message
+    assert "unquoted" not in message
+
+
+def test_empty_inline_table_is_an_error_without_suggestion() -> None:
+    _config, rows = parse_permissions({"x": {}}, None, TOOLS)
+    assert rows == [(LABEL, "error", "x is a table, not a mode")]
 
 
 def test_key_both_tool_and_group_error() -> None:
