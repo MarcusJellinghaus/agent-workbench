@@ -14,12 +14,8 @@ from datetime import datetime
 from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from agent_workbench.apps.origin_check import local_origins
-
-if TYPE_CHECKING:
-    from agent_workbench.adapters.config import ConfigFile
 
 logger = logging.getLogger(__name__)
 
@@ -183,30 +179,6 @@ def _missing_dependency() -> str | None:
     return None
 
 
-def _check_toolsets(config_file: "ConfigFile") -> str | None:
-    """Build the configured toolsets once and close them; return the error text or None.
-
-    ``get_runtime`` runs only after Chainlit has started, so a broken tool setup must
-    stop the launcher here. Cheap: per the provider contract, ``build`` opens no
-    connection. Builds nothing without a ``[tools]`` table.
-
-    Args:
-        config_file: The read config file.
-
-    Returns:
-        ``"<ExceptionType>: <message>"`` when the build fails, else None.
-    """
-    from agent_workbench.apps.tool_setup import build_configured_toolsets
-
-    try:
-        toolsets = build_configured_toolsets(config_file)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        return f"{type(exc).__name__}: {exc}"
-    if toolsets is not None:
-        toolsets.close()
-    return None
-
-
 def _run_chainlit(target: str) -> None:
     """Import chainlit.cli here only: it applies nest_asyncio and logging.basicConfig."""
     from chainlit.cli import run_chainlit
@@ -215,14 +187,17 @@ def _run_chainlit(target: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the chat page: dependency check, ``verify``, toolset build, then Chainlit.
+    """Run the chat page: dependency check, ``verify``, then Chainlit.
+
+    ``verify`` includes the toolset build of its PERMISSIONS check, so a broken tool
+    setup stops the start here.
 
     Args:
         argv: Command-line arguments; defaults to ``sys.argv[1:]``.
 
     Returns:
-        Process exit code: 0 after Chainlit returns, 1 on a missing dependency, a
-        failed ``verify`` or a toolset that cannot be built.
+        Process exit code: 0 after Chainlit returns, 1 on a missing dependency or a
+        failed ``verify``.
     """
     # Ensure stdout/stderr use UTF-8 on all platforms (e.g. Windows cp1252 default).
     if hasattr(sys.stdout, "reconfigure"):
@@ -269,19 +244,12 @@ def main(argv: list[str] | None = None) -> int:
     from agent_workbench.services.verify import run_verify
 
     # Before verify loads the providers: keep their DEBUG output out of the app log.
-    # Not earlier: tool_setup imports langchain_core, checked by _missing_dependency.
-    config_file = read_config_file()
-    clamp_provider_loggers(config_file)
+    clamp_provider_loggers(read_config_file())
 
     # A tool backend that is down must not block the start: no tool connections.
     report = run_verify(connect_tools=False)
     if report.exit_code:
         print(format_report(report))
-        return 1
-
-    error = _check_toolsets(config_file)
-    if error:
-        print(f"Building the tools failed: {error}", file=sys.stderr)
         return 1
 
     root = prepare_chainlit_env(app_data)

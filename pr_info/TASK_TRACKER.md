@@ -38,9 +38,9 @@ See [step_2.md](./steps/step_2.md)
 ### Step 3: PERMISSIONS section in `verify`; remove `ui_launcher._check_toolsets`
 See [step_3.md](./steps/step_3.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks (pylint, pytest, mypy, lint-imports) – fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks (pylint, pytest, mypy, lint-imports) – fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Permission gate (`apps/permission_gate.py`) and `build_graph(..., modes=...)`
 See [step_4.md](./steps/step_4.md)

@@ -1,4 +1,4 @@
-"""Toolset building shared by ``get_runtime`` and the ``agent-workbench-ui`` gate."""
+"""Toolset building of ``get_runtime``."""
 
 from agent_workbench.adapters import toolset_providers
 from agent_workbench.adapters.config import ConfigFile
