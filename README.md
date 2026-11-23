@@ -3,7 +3,8 @@
 Governed LLM chat workbench: configurable tool access, per-user permissions and audit logging.
 
 Status: LLM core (config, `verify`, `prompt`) and a chat UI (`agent-workbench-ui`, with
-saved sessions and tools: SQL schema tools and `validate_sql`, workspace read / write). See
+saved sessions and tools: SQL schema tools and `validate_sql`, workspace read / write).
+Tools are `deny` unless `[permissions]` allows them. See
 [docs/architecture/architecture.md](docs/architecture/architecture.md) for the design and
 roadmap.
 
@@ -84,6 +85,28 @@ project_dir = "C:/Users/me/work/reports"
 - Keep the mcp-tools-sql query config outside the workspace – the model can write files
   there.
 
+### Permissions
+
+A top-level `[permissions]` table sets a mode per tool or tool group. Recommended defaults
+(no example file is shipped):
+
+```toml
+[permissions]
+"sql.schema" = "allow"
+validate_sql = "allow"
+"workspace.read" = "allow"
+"workspace.write" = "allow"
+```
+
+- Modes: `allow` (runs without asking), `ask` (confirm each call), `ask_session` (confirm
+  once per tool per conversation; not kept across a reload, resume or restart), `deny` (not
+  shown to the model).
+- A tool-level entry beats a group-level one. Unlisted tools are `deny`; without
+  `[permissions]` every tool is `deny`.
+- Group names contain dots and must be quoted: `sql.schema = "allow"` is a nested table and
+  an error.
+- Names that match no tool or group of the configured providers are a `verify` warning.
+
 ## `agent-workbench verify`
 
 Checks the setup and sends a live test prompt.
@@ -94,16 +117,16 @@ agent-workbench verify --check-models
 agent-workbench --log-level DEBUG verify
 ```
 
-Sections: CONFIG, TOOLS (the toolset providers' own checks), LLM PROVIDER, EFFECTIVE
-CONFIG, LLM PROVIDER DETAILS (ending with the test prompt) and, when provider packages are
-missing, INSTALL INSTRUCTIONS.
+Sections: CONFIG, TOOLS (the toolset providers' own checks), PERMISSIONS (effective mode
+and source per tool), LLM PROVIDER, EFFECTIVE CONFIG, LLM PROVIDER DETAILS (ending with the
+test prompt) and, when provider packages are missing, INSTALL INSTRUCTIONS.
 
 - `--check-models` also lists the backend's available models. Advisory: it does not
   affect the exit code.
 - TOOLS checks may connect (e.g. to the database); the UI start runs them without
   connecting.
-- Exit code 0 when the config, the provider checks, the test prompt and the TOOLS checks
-  all pass; else 1.
+- Exit code 0 when the config, the provider checks, the test prompt, the TOOLS checks and
+  the PERMISSIONS checks (toolset build, `[permissions]` entries) all pass; else 1.
 - `--log-level DEBUG` shows connection diagnostics when the test prompt fails.
 
 ## `agent-workbench prompt "<text>"`
@@ -131,22 +154,28 @@ agent-workbench-ui --log-level DEBUG
 - Start: checks that `langgraph`, `langgraph.checkpoint.sqlite`, `langchain_core`, `greenlet`
   and `aiohttp` are installed (else: `pip install "agent-workbench[langchain]"`), then runs
   the full `verify` including the test prompt. On failure it prints the verify report and
-  exits with code 1. Then it builds the configured toolsets once and closes them; a build
-  error stops the start.
+  exits with code 1. The configured toolsets are built (and closed) in `verify`'s
+  PERMISSIONS check, so a build error fails `verify` and stops the start.
 - Serves on `http://127.0.0.1:8000` only and opens the browser. `CHAINLIT_PORT` changes the
   port; `CHAINLIT_HOST` is always forced to `127.0.0.1`.
 - Chainlit's files (`.chainlit/config.toml`, rewritten on every start, and `.files/`) live in
   `%USERPROFILE%\.agent_workbench\chainlit`. No `.env` file is read. Chainlit env vars for
   features the app does not configure (database, Literal AI, Slack / Discord / Teams, custom
   auth, auth cookie, root path, SSL) are ignored with a warning.
-- Limits per turn: 50 agent steps, 300 s without a stream event (paused while tools run),
-  3600 s overall. Token usage is shown after each answer; the Stop button cancels the turn.
+- Limits per turn: 50 agent steps, 300 s without a stream event (paused while tools run
+  and while a confirmation dialog is open), 3600 s overall. Token usage is shown after each
+  answer; the Stop button cancels the turn.
 - Tool calls appear as steps with their arguments and a truncated result.
+- Confirmation dialog (`ask` / `ask_session`): a message with the tool's arguments, then
+  OK / Cancel. No answer within 300 s counts as Cancel; Stop cancels the dialog and the
+  turn.
 - `--log-level` – level of the app log, default `INFO`. App log:
   `%USERPROFILE%\.agent_workbench\logs\agent_workbench_ui_<timestamp>.log`, one per run;
   the console shows `OUTPUT` and above.
 - Tool-call log: `%USERPROFILE%\.agent_workbench\logs\tool_calls.jsonl`, one line per call
-  (user, tool, parameters, outcome, result size, duration; no results).
+  (user, tool, parameters, outcome, result size, duration; no results). Outcomes: `ok`,
+  `error`, `cancelled`, `denied`, `blocked`, `unknown_tool`, `invalid_arguments`,
+  `dialog_error`.
 
 ### Sessions
 

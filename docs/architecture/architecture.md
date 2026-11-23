@@ -97,9 +97,10 @@ known gap (workspace guard planned in mcp-workspace).
 1. The app gives the model the name, description and JSON schema of every tool whose
    mode is not `deny`.
 2. The model replies with a structured request, e.g. `read_columns(table="Customers")`.
-3. The permission check applies the tool's mode; for `ask` / `ask_session` the user
-   confirms in Chainlit.
-4. The arguments are validated, the function runs in-process, the call is logged.
+3. The permission gate (`ToolNode(awrap_tool_call=...)`) checks, in order: the tool is
+   bound (else unknown / `deny`), the arguments are valid, the tool's mode – for `ask` /
+   `ask_session` the user confirms in Chainlit.
+4. The function runs in-process, the call is logged.
 5. The result goes back to the model, which answers or calls another tool.
 
 ---
@@ -111,16 +112,18 @@ Package: `src/agent_workbench/`. Dependencies flow downward only; enforced by
 
 | Layer | Package | Responsibility (planned) | Status |
 |---|---|---|---|
-| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, batch runner (M2) | LangGraph agent with tools (wiring, tool errors, tool callbacks), Chainlit chat page with tool steps, `agent-workbench-ui` (toolset build gate), sessions (save, list, resume, delete) |
-| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify (incl. TOOLS), prompt |
-| services | `agent_workbench.services` | Permission check and confirmation, tool filter, tool-call logging | verify checks, logging setup, tool filter (hard-coded until permissions), tool-call log |
-| adapters | `agent_workbench.adapters` | Copied LLM model layer, toolset provider discovery (entry points `agent_workbench.toolsets`; no tool package imported anywhere), toolset building (called from `apps`), tool-spec → LangChain tool adapter, `mcp_coder_utils` shims | copied LLM model layer, config loader, chat-model functions, provider discovery, toolset building, tool adapter, shims |
-| core | `agent_workbench.core` | Config models, permission modes, domain types | `LLMConfig` |
+| apps | `agent_workbench.apps` | LangGraph agent, Chainlit UI, permission gate and confirmation dialog, batch runner (M2) | LangGraph agent with tools (wiring, tool errors, tool callbacks), permission gate (`apps/permission_gate.py`), Chainlit chat page with tool steps and confirmation dialog, `agent-workbench-ui` (toolset build in verify's PERMISSIONS check), sessions (save, list, resume, delete) |
+| interfaces | `agent_workbench.interfaces` | CLI (`verify`) | CLI: verify (incl. TOOLS, PERMISSIONS), prompt |
+| services | `agent_workbench.services` | Permission config and resolver, tool-call logging | verify checks (incl. PERMISSIONS), logging setup, permission parser / resolver, tool-call log |
+| adapters | `agent_workbench.adapters` | Copied LLM model layer, toolset provider discovery (entry points `agent_workbench.toolsets`; no tool package imported anywhere), toolset building (called from `apps` and `services.verify`), tool-spec → LangChain tool adapter, `mcp_coder_utils` shims | copied LLM model layer, config loader, chat-model functions, provider discovery, toolset building, tool adapter, shims |
+| core | `agent_workbench.core` | Config models, permission modes, domain types | `LLMConfig`, `PermissionMode` |
 
 Additional contracts:
 
 - `core` imports no other layer.
 - Source never imports `tests`.
+- `services.permissions` imports only `core` (no `langchain_core`, `langgraph`, `chainlit`).
+- `services.verify` does not import `adapters.tools`.
 
 ### Third-party dependencies per layer
 
@@ -154,13 +157,33 @@ The toolchain placeholder (`core/greeting.py`, the greeting CLI) was removed in 
 
 ## 6. Cross-cutting Concepts
 
-### Tool permissions (planned)
+### Tool permissions
 
-A mode per tool or tool group in the agent-workbench config: `allow` (runs without
-asking), `ask` (user confirms each call), `ask_session` (user confirms once per session),
-`deny` (not shown to the model; default for unlisted tools). Example defaults: SQL schema /
-table / column read, `validate_sql`, workspace read and write → `allow`; everything else →
-`deny`. Later: rules on tool arguments (e.g. per schema).
+A mode per tool or tool group in the top-level `[permissions]` table of the
+agent-workbench config: `allow` (runs without asking), `ask` (user confirms each call),
+`ask_session` (user confirms once per tool per conversation; not kept across a reload,
+resume or restart), `deny` (not shown to the model; default for unlisted tools). Later:
+rules on tool arguments (e.g. per schema).
+
+- Recommended defaults: the README block (`"sql.schema"`, `validate_sql`,
+  `"workspace.read"`, `"workspace.write"` → `allow`); no example file is shipped. Without
+  `[permissions]` every tool is `deny`.
+- A tool-level entry beats a group-level one. Group names contain dots and must be quoted;
+  an unquoted dotted key is a nested table and a `verify` error, as are an unknown mode and
+  a name that is both a tool and a group. A name that matches nothing is a warning.
+- Binding: every tool whose mode is not `deny` is bound to the model.
+- Enforcement: the permission gate (`apps/permission_gate.py`) is the `ToolNode`
+  interceptor (`awrap_tool_call`); the sync path (`wrap_tool_call`) never runs a tool.
+  Per call: unbound (unknown / `deny`) → invalid arguments → mode. `ask` / `ask_session`
+  open a Chainlit OK / Cancel dialog (at most one per turn; 300 s timeout = Cancel).
+- Fail closed: no per-turn approval prompt (`TurnPermissions`), a failing dialog, the sync
+  path, Cancel and a timeout all refuse the call.
+- Denial wording (as mcp_coder), returned as an error `ToolMessage`:
+  - Cancel / timeout: "Tool call denied by the user. Do not retry this call — choose a
+    different approach, or ask the user what they would prefer."
+  - No prompt reachable / dialog error: "This tool requires approval, but no approval
+    prompt was reachable, so the call was refused without asking the user. Choose a
+    different approach or ask the user how to proceed."
 
 ### Query approval (planned)
 
@@ -193,16 +216,18 @@ Tool-call log: the one hand-written exception, since `log_utils` configures only
 logger and cannot write a separate file independent of `--log-level`.
 
 - One JSON line per call in `<app-data>/logs/tool_calls.jsonl`: UTC timestamp, OS user,
-  tool, parameters, outcome (`ok` / `error` / `cancelled`), result size (length of the
-  text the model receives), duration. Never the result.
+  tool, parameters, outcome, result size (length of the text the model receives), duration.
+  Never the result.
+- Outcomes of calls that ran: `ok` / `error` / `cancelled`. Of calls that did not run
+  (logged by the permission gate, result size empty): `denied`, `blocked` (a `deny` tool),
+  `unknown_tool`, `invalid_arguments`, `dialog_error`, `cancelled` (Stop during a dialog).
 - Parameters: strings longer than 200 characters are cut and their full length noted, also
   inside nested dicts / lists. Keys containing one of `SENSITIVE_KEY_PATTERNS`
   (case-insensitive substring, recursive) are replaced by `REDACTED_VALUE`. Over-redaction
   (e.g. `max_tokens`) is accepted; secrets inside free text (SQL literals, file content)
   are not detected.
-- Not logged: calls that fail before the tool function runs (invalid arguments, unknown
-  tool name) – until the permission node (#18) logs them. Errors a tool returns as text
-  log as `ok`.
+- The gate logs calls that do not run (unknown / `deny` tool, invalid arguments, denied,
+  dialog error, cancelled during a dialog). Errors a tool returns as text log as `ok`.
 - A failed write is logged to the app log and does not abort the turn.
 
 Sessions: full conversations are kept until the user deletes them. Two SQLite files in
@@ -217,8 +242,8 @@ As in mcp_coder:
 
 - At most 50 agent steps per turn (LangGraph `recursion_limit`); a `GraphRecursionError`
   is shown as a message.
-- 300 s inactivity per turn (no stream event), paused while tools run, and 3600 s overall
-  per turn.
+- 300 s inactivity per turn (no stream event), paused while tools run and while a
+  confirmation dialog is open, and 3600 s overall per turn.
 - Chat model HTTP timeout 300 s.
 - Token usage per turn and per session shown in the UI. No budgets.
 

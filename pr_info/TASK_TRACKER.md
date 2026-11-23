@@ -73,9 +73,9 @@ See [step_7.md](./steps/step_7.md)
 ### Step 8: Docs – README, architecture, security design
 See [step_8.md](./steps/step_8.md)
 
-- [ ] Implementation (documentation only, no code)
-- [ ] Quality checks (pytest) – fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (documentation only, no code)
+- [x] Quality checks (pytest) – fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 
