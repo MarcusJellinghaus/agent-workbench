@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +14,7 @@ from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError, NodeCancelledError
 from langgraph.graph import START, MessagesState, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 
 from agent_workbench.adapters import config, llm
 from agent_workbench.adapters.config import load_llm_config
@@ -22,8 +22,10 @@ from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
 from agent_workbench.adapters.tools import to_structured_tool
 from agent_workbench.adapters.toolset_providers import Toolsets
+from agent_workbench.apps.permission_gate import make_tool_node
 from agent_workbench.apps.tool_setup import build_configured_toolsets
 from agent_workbench.core.config import LLMConfig
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
 from agent_workbench.services.tool_call_log import wrap_spec
 from agent_workbench.services.tool_filter import enabled_specs
@@ -47,17 +49,27 @@ _STEPS_MSG = (
 )
 
 
-def build_graph(chat_model: Any, tools: Sequence[Any], checkpointer: Any) -> Any:
-    """Compile model node → ToolNode, routed by tools_condition.
+def build_graph(
+    chat_model: Any,
+    tools: Sequence[Any],
+    checkpointer: Any,
+    *,
+    modes: Mapping[str, PermissionMode],
+) -> Any:
+    """Compile model node → gated ToolNode, routed by tools_condition.
+
+    A bound tool missing from *modes* or mapped to ``deny`` raises ``ValueError``.
 
     Args:
         chat_model: A ``BaseChatModel``; tools are bound only when there are any.
         tools: The tools offered to the model.
         checkpointer: The LangGraph checkpoint saver keeping the threads.
+        modes: ``{tool name: mode}`` for every configured tool, ``deny`` included.
 
     Returns:
         The compiled graph.
     """
+    tool_node = make_tool_node(tools, modes)
     model = chat_model.bind_tools(tools) if tools else chat_model
 
     async def call_model(state: MessagesState) -> dict[str, Any]:
@@ -65,10 +77,7 @@ def build_graph(chat_model: Any, tools: Sequence[Any], checkpointer: Any) -> Any
 
     graph = StateGraph(MessagesState)
     graph.add_node("model", call_model)
-    # The default handler re-raises everything except ToolInvocationError; with True
-    # every tool exception becomes an error ToolMessage (its text goes to the provider)
-    # and the turn continues. asyncio.CancelledError is not an Exception and propagates.
-    graph.add_node("tools", ToolNode(list(tools), handle_tool_errors=True))
+    graph.add_node("tools", tool_node)
     graph.add_edge(START, "model")
     graph.add_conditional_edges("model", tools_condition)
     graph.add_edge("tools", "model")
@@ -162,6 +171,14 @@ def build_tools(toolsets: Toolsets) -> list[StructuredTool]:
     return [to_structured_tool(wrap_spec(s)) for s in enabled_specs(toolsets.specs)]
 
 
+def _modes(toolsets: Toolsets | None) -> dict[str, PermissionMode]:
+    """Return ``allow`` for the enabled specs, ``deny`` for the rest; {} without any."""
+    if toolsets is None:
+        return {}
+    enabled = {s.name for s in enabled_specs(toolsets.specs)}
+    return {s.name: "allow" if s.name in enabled else "deny" for s in toolsets.specs}
+
+
 async def _open_runtime() -> Runtime:
     """Build the runtime; close what was opened if a later step fails.
 
@@ -177,7 +194,7 @@ async def _open_runtime() -> Runtime:
         toolsets = build_configured_toolsets(config_file)
         saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
         tools = build_tools(toolsets) if toolsets is not None else []
-        graph = build_graph(chat_model, tools, saver)
+        graph = build_graph(chat_model, tools, saver, modes=_modes(toolsets))
     except BaseException:
         try:
             if saver is not None:

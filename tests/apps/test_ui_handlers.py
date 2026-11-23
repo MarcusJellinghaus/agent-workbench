@@ -311,7 +311,7 @@ async def test_turn_on_a_deleted_thread_leaves_no_checkpoints(
     checkpointer: AsyncSqliteSaver,
 ) -> None:
     model = make_scripted_chat_model(lambda _n: AIMessage(content="hi"), "fake")
-    runtime.graph = agent.build_graph(model, [], checkpointer)
+    runtime.graph = agent.build_graph(model, [], checkpointer, modes={})
     runtime.chat_model = model
     runtime.llm_config = LLMConfig(backend="openai", model="gpt-4o")
     user = await data_layer.create_user(User(identifier="alice"))
@@ -466,7 +466,10 @@ async def test_tool_call_of_a_fake_provider_shows_one_step(
         toolsets = build_toolsets(read_config_file(path))
         try:
             graph = agent.build_graph(
-                model, agent.build_tools(toolsets), InMemorySaver()
+                model,
+                agent.build_tools(toolsets),
+                InMemorySaver(),
+                modes={"echo": "allow"},
             )
             error = await agent.run_turn(
                 graph,

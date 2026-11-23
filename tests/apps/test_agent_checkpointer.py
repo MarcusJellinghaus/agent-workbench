@@ -46,7 +46,8 @@ async def test_restart_keeps_the_conversation(tmp_path: Path) -> None:
     path = tmp_path / "c.sqlite"
     saver = await agent.open_checkpointer(path)
     try:
-        await _ask(agent.build_graph(_answer("answer 1"), [], saver), "question 1")
+        graph = agent.build_graph(_answer("answer 1"), [], saver, modes={})
+        await _ask(graph, "question 1")
     finally:
         await saver.conn.close()
 
@@ -62,7 +63,7 @@ async def test_restart_keeps_the_conversation(tmp_path: Path) -> None:
 
     saver = await agent.open_checkpointer(path)
     try:
-        graph = agent.build_graph(model, [], saver)
+        graph = agent.build_graph(model, [], saver, modes={})
         state = await graph.aget_state(_thread("t1"))
         assert [m.content for m in state.values["messages"]] == [
             "question 1",
@@ -100,7 +101,7 @@ async def test_delete_on_a_fresh_database(tmp_path: Path) -> None:
 async def test_delete_and_wal_checkpoint_remove_the_thread(tmp_path: Path) -> None:
     saver = await agent.open_checkpointer(tmp_path / "c.sqlite")
     try:
-        await _ask(agent.build_graph(_answer("hi"), [], saver), "hello")
+        await _ask(agent.build_graph(_answer("hi"), [], saver, modes={}), "hello")
         assert await saver.aget_tuple(_thread("t1")) is not None
         await saver.adelete_thread("t1")
         await agent.checkpoint_wal(saver)

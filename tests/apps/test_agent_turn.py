@@ -17,6 +17,7 @@ from langgraph.errors import NodeCancelledError
 from agent_workbench.adapters import llm
 from agent_workbench.apps import agent
 from agent_workbench.core.config import LLMConfig
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
 from tests.langchain_doubles import make_scripted_chat_model
 
@@ -75,7 +76,8 @@ class _RecordingModel(BaseChatModel):  # type: ignore[misc]
 
 
 def _graph(model: Any, tools: Sequence[Any] = ()) -> Any:
-    return agent.build_graph(model, tools, InMemorySaver())
+    modes: dict[str, PermissionMode] = {tool.name: "allow" for tool in tools}
+    return agent.build_graph(model, tools, InMemorySaver(), modes=modes)
 
 
 async def _turn(

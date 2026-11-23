@@ -80,8 +80,9 @@ _.pytestmark
 _._fresh_runtime
 # tests/apps/test_ui_launcher.py: pytest fixture, used via usefixtures
 _._real_verify
-# tests/apps/conftest.py: autouse fixture resetting Chainlit's data layer
+# tests/apps/conftest.py: autouse fixtures resetting Chainlit's data layer, app data in tmp_path
 _._chainlit_data_layer
+_._app_data_in_tmp_path
 # tests/conftest.py: pytest fixture, used via usefixtures
 _.restore_root_logging
 # tests/services/test_tool_call_log.py: pydantic field of a nested test argument

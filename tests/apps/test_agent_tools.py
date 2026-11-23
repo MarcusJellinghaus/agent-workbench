@@ -20,6 +20,7 @@ from agent_workbench.adapters.toolset_providers import (
 )
 from agent_workbench.apps import agent
 from agent_workbench.core.config import LLMConfig
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
 from tests.adapters.tool_fixtures import (
     new_provider,
@@ -76,7 +77,9 @@ def _calling(*calls: tuple[str, dict[str, Any]]) -> Any:
 
 async def _run_loop(toolsets: Toolsets, model: Any) -> dict[str, Any]:
     """Run one turn of *model* with the tools of *toolsets*; return what happened."""
-    graph = agent.build_graph(model, agent.build_tools(toolsets), InMemorySaver())
+    tools = agent.build_tools(toolsets)
+    modes: dict[str, PermissionMode] = {tool.name: "allow" for tool in tools}
+    graph = agent.build_graph(model, tools, InMemorySaver(), modes=modes)
     starts: list[tuple[str, str, dict[str, Any]]] = []
     ends: list[tuple[str, str]] = []
 

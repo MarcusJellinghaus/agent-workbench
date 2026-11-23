@@ -15,7 +15,7 @@ import tempfile
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -69,6 +69,16 @@ def chainlit_dirs_before_and_now() -> tuple[
     import chainlit.config  # noqa: F401  # pylint: disable=unused-import
 
     return _CHAINLIT_DIRS_BEFORE_IMPORT, snapshot_chainlit_dirs()
+
+
+@pytest.fixture(autouse=True)
+def _app_data_in_tmp_path(tmp_path: Path) -> Iterator[None]:
+    """App data in ``tmp_path``: no test writes the real ``tool_calls.jsonl``.
+
+    Tests that patch ``app_data_dir`` themselves patch on top, to the same ``tmp_path``.
+    """
+    with patch("agent_workbench.adapters.config.app_data_dir", return_value=tmp_path):
+        yield
 
 
 @pytest.fixture(autouse=True)
