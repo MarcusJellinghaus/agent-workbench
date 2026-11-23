@@ -87,3 +87,9 @@ _._app_data_in_tmp_path
 _.restore_root_logging
 # tests/services/test_tool_call_log.py: pydantic field of a nested test argument
 _.password
+# apps/ui_handlers.py: Chainlit AskActionMessage attribute, read by its to_dict()
+_.wait_for_answer
+# tests/apps/test_ui_handlers_dialog.py: BaseChainlitEmitter overrides, called by Chainlit
+_.update_step
+_.send_ask_user
+_.raise_on_timeout

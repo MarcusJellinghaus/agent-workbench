@@ -171,6 +171,49 @@ def test_session_reuses_token_usage(fake_cl: FakeChainlit) -> None:
 
 
 @pytest.mark.usefixtures("runtime")
+def test_turn_gets_the_dialog_and_the_session_grants(fake_cl: FakeChainlit) -> None:
+    with patch.object(ui_handlers, "run_turn", AsyncMock(return_value=None)) as turn:
+        asyncio.run(ui_handlers.on_message(_user_message("one")))
+        asyncio.run(ui_handlers.on_message(_user_message("two")))
+        first, second = (call.kwargs for call in turn.call_args_list)
+        assert first["confirm"] is ui_handlers.confirm_tool_call
+        grants = fake_cl.session[ui_handlers.GRANTS_KEY]
+        assert isinstance(grants, set)
+        assert first["grants"] is second["grants"] is grants
+
+        fake_cl.session.clear()  # a new chat or a reload: a new user session
+        asyncio.run(ui_handlers.on_message(_user_message("three")))
+    third = turn.call_args.kwargs["grants"]
+    assert third == set()
+    assert third is not grants
+
+
+@pytest.mark.usefixtures("runtime")
+def test_restored_null_grants_are_replaced(fake_cl: FakeChainlit) -> None:
+    fake_cl.session[ui_handlers.GRANTS_KEY] = None
+    with patch.object(ui_handlers, "run_turn", AsyncMock(return_value=None)) as turn:
+        asyncio.run(ui_handlers.on_message(_user_message()))
+    grants = turn.call_args.kwargs["grants"]
+    assert grants == set()
+    assert fake_cl.session[ui_handlers.GRANTS_KEY] is grants
+
+
+@pytest.mark.parametrize("fails", [False, True], ids=["runtime", "no-runtime"])
+def test_resume_resets_the_grants(fails: bool, fake_cl: FakeChainlit) -> None:
+    fake_cl.session[ui_handlers.GRANTS_KEY] = {"write_file"}
+    rt = MagicMock()
+    rt.checkpointer.aget_tuple = AsyncMock(return_value=MagicMock())
+    get_rt = (
+        AsyncMock(side_effect=RuntimeError("no rt"))
+        if fails
+        else AsyncMock(return_value=rt)
+    )
+    with patch.object(ui_handlers, "get_runtime", get_rt):
+        asyncio.run(ui_handlers.on_chat_resume({"id": THREAD_ID}))
+    assert fake_cl.session[ui_handlers.GRANTS_KEY] == set()
+
+
+@pytest.mark.usefixtures("runtime")
 def test_stop_propagates_without_messages(fake_cl: FakeChainlit) -> None:
     with (
         patch.object(
@@ -220,6 +263,7 @@ def test_checkpointer_is_the_runtimes(runtime: MagicMock) -> None:
     assert asyncio.run(ui_handlers._checkpointer()) is runtime.checkpointer
 
 
+@pytest.mark.usefixtures("fake_cl")
 @pytest.mark.parametrize("state", [None, MagicMock()], ids=["missing", "present"])
 def test_resume_warns_without_checkpoint(
     runtime: MagicMock, state: Any, caplog: pytest.LogCaptureFixture
@@ -233,6 +277,7 @@ def test_resume_warns_without_checkpoint(
     assert (THREAD_ID in caplog.text) is (state is None)
 
 
+@pytest.mark.usefixtures("fake_cl")
 def test_resume_logs_runtime_failure(caplog: pytest.LogCaptureFixture) -> None:
     with (
         patch.object(

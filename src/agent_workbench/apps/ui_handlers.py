@@ -6,8 +6,11 @@ Chainlit is imported here, in ``ui_data_layer`` (imported only by this module) a
 the app has started.
 """
 
+import asyncio
 import getpass
+import json
 import logging
+import re
 from typing import Any
 
 import chainlit as cl
@@ -24,12 +27,15 @@ from agent_workbench.apps.agent import (
 from agent_workbench.apps.origin_check import OriginCheckMiddleware, local_origins
 from agent_workbench.apps.ui_data_layer import SessionDataLayer
 from agent_workbench.apps.ui_launcher import chainlit_port
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
 from agent_workbench.services.tool_call_log import truncate_text
 
 logger = logging.getLogger(__name__)
 
 TOOL_OUTPUT_CHARS = 2000  # characters of a tool result shown in its step
+DIALOG_TIMEOUT = 300  # seconds; a timeout counts as Cancel
+GRANTS_KEY = "permission_grants"  # cl.user_session key of the ask_session grants
 
 app.add_middleware(
     OriginCheckMiddleware, allowed_origins=local_origins(chainlit_port())
@@ -74,6 +80,90 @@ class ToolSteps:
                 logger.exception("Closing the tool step of run %s failed", run_id)
 
 
+def arguments_markdown(name: str, args: dict[str, Any]) -> str:
+    """Return the tool name plus *args* as JSON in a code fence no backtick run can close.
+
+    Args:
+        name: The tool name.
+        args: The call's arguments; values JSON cannot encode are shown as ``str``.
+
+    Returns:
+        Markdown whose fence is longer than the longest backtick run of the JSON.
+    """
+    text = json.dumps(args, indent=2, ensure_ascii=False, default=str)
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"Tool call **{name}** with these arguments:\n\n{fence}json\n{text}\n{fence}"
+
+
+async def confirm_tool_call(
+    name: str, args: dict[str, Any], mode: PermissionMode
+) -> bool:
+    """Show the call's arguments, then ask OK / Cancel; True only for OK.
+
+    The arguments message stays visible and is stored with the thread. A timeout
+    counts as Cancel. Stop during the dialog removes the buttons before it propagates.
+
+    Args:
+        name: The tool name.
+        args: The call's arguments.
+        mode: ``ask`` or ``ask_session``; the text says what OK means.
+
+    Returns:
+        True when the user chose OK.
+
+    Raises:
+        asyncio.CancelledError: The turn was stopped during the dialog.
+    """
+    await cl.Message(content=arguments_markdown(name, args)).send()
+    text = f"Allow **{name}**?"
+    if mode == "ask_session":
+        text += " OK allows this tool for the rest of the conversation."
+    ask = cl.AskActionMessage(
+        content=text,
+        actions=[
+            cl.Action(name="ok", payload={}, label="OK"),
+            cl.Action(name="cancel", payload={}, label="Cancel"),
+        ],
+        timeout=DIALOG_TIMEOUT,
+    )
+    try:
+        res = await ask.send()
+    except asyncio.CancelledError:
+        await _cancel_ask(ask)
+        raise
+    return res is not None and res.get("name") == "ok"
+
+
+async def _cancel_ask(ask: cl.AskActionMessage) -> None:
+    """Remove the buttons, clear the ask, mark its text cancelled; logs, never raises.
+
+    Chainlit's ``send_ask_user`` skips this cleanup when the waiting task is cancelled.
+    """
+    try:
+        for action in ask.actions:
+            await action.remove()
+        await cl.context.emitter.clear("clear_ask")
+        ask.content = "Cancelled – the tool call did not run."
+        ask.wait_for_answer = False
+        await ask.update()
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Cleaning up the cancelled approval prompt failed")
+
+
+def _session_grants() -> set[str]:
+    """Return the conversation's ``ask_session`` grants, created if missing.
+
+    A new chat or a page reload gets a new user session, hence a new set; a restored
+    non-set value (e.g. ``null``) is replaced.
+    """
+    grants = cl.user_session.get(GRANTS_KEY)
+    if not isinstance(grants, set):
+        grants = set()
+        cl.user_session.set(GRANTS_KEY, grants)
+    return grants
+
+
 @cl.data_layer  # type: ignore[untyped-decorator]  # chainlit is follow_imports=skip
 def data_layer() -> SessionDataLayer:
     """Build Chainlit's data layer; Chainlit calls this once, on first use.
@@ -96,12 +186,14 @@ async def header_auth(headers: Any) -> cl.User:  # pylint: disable=unused-argume
 
 @cl.on_chat_resume  # type: ignore[untyped-decorator]  # chainlit is follow_imports=skip
 async def on_chat_resume(thread: dict[str, Any]) -> None:
-    """Warn when the checkpointer has no state for the resumed *thread*.
+    """Reset the ``ask_session`` grants; warn when the checkpointer has no state.
 
-    The page then shows the conversation the model no longer knows; the user can
-    still continue it. Logs, never raises: Chainlit awaits this before it sends the
-    thread to the page.
+    A resumed conversation asks again. Without a checkpoint for *thread* the page
+    shows the conversation the model no longer knows; the user can still continue
+    it. Logs, never raises: Chainlit awaits this before it sends the thread to the
+    page.
     """
+    cl.user_session.set(GRANTS_KEY, set())
     try:
         runtime = await get_runtime()
         state = await runtime.checkpointer.aget_tuple(
@@ -148,6 +240,8 @@ async def on_message(message: cl.Message | None) -> None:
             usage,
             on_tool_start=steps.start,
             on_tool_end=steps.end,
+            confirm=confirm_tool_call,
+            grants=_session_grants(),
         )
         if error:
             if answer.content:
