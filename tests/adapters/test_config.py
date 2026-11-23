@@ -234,6 +234,38 @@ def test_broken_llm_still_reads_tools(tmp_path: Path) -> None:
     assert config_file.tools == {"workspace": {"project_dir": str(tmp_path)}}
 
 
+def test_permissions_table_read(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        '[permissions]\n"sql.schema" = "allow"\nvalidate_sql = "ask"\n[tools.sql]\n',
+    )
+    config_file = read_config_file(path)
+    assert config_file.permissions == {"sql.schema": "allow", "validate_sql": "ask"}
+    assert config_file.permissions_type_error is None
+    assert config_file.tools == {"sql": {}}
+
+
+def test_unquoted_dotted_permission_key_is_nested(tmp_path: Path) -> None:
+    config_file = read_config_file(
+        _write(tmp_path, '[permissions]\nsql.schema = "allow"\n')
+    )
+    assert config_file.permissions == {"sql": {"schema": "allow"}}
+
+
+def test_no_permissions_table(tmp_path: Path) -> None:
+    config_file = read_config_file(_write(tmp_path, "[tools.sql]\n"))
+    assert config_file.permissions == {}
+    assert config_file.permissions_type_error is None
+    assert read_config_file(tmp_path / "missing.toml").permissions == {}
+
+
+def test_permissions_not_a_table(tmp_path: Path) -> None:
+    config_file = read_config_file(_write(tmp_path, 'permissions = "x"\n'))
+    assert config_file.parse_error is None
+    assert config_file.permissions == {}
+    assert config_file.permissions_type_error == "expected table, got str"
+
+
 def _config(tools: dict[str, Any], tools_type_error: str | None = None) -> ConfigFile:
     return ConfigFile(
         Path("config.toml"),

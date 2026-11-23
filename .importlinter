@@ -123,6 +123,23 @@ forbidden_modules =
     agent_workbench.adapters
     agent_workbench.adapters.langchain
 
+# The permission parser and resolver are pure: core and the standard library only.
+# import-linter skips a source/forbidden pair where one contains the other, so the services
+# layer is forbidden via agent_workbench.services.*. TYPE_CHECKING imports count as well.
+[importlinter:contract:permissions_pure]
+name = services.permissions imports only core
+type = forbidden
+source_modules =
+    agent_workbench.services.permissions
+forbidden_modules =
+    agent_workbench.adapters
+    agent_workbench.interfaces
+    agent_workbench.apps
+    agent_workbench.services.*
+    langchain_core
+    langgraph
+    chainlit
+
 # chainlit: the chat UI. Allowed in apps only.
 [importlinter:contract:chainlit_isolation]
 name = chainlit only in apps
