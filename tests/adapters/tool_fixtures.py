@@ -5,7 +5,7 @@ of ``adapters.toolset_providers``, as mcp_coder's toolkit runner tests do.
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
@@ -165,8 +165,17 @@ def _toml_value(value: Any) -> str:
     return json.dumps(value)
 
 
-def write_config_file(tmp_path: Path, tables: dict[str, dict[str, Any]]) -> Path:
+def write_config_file(
+    tmp_path: Path,
+    tables: dict[str, dict[str, Any]],
+    permissions: Mapping[str, str] | None = None,
+) -> Path:
     """Write a config file with one ``[tools.<name>]`` table per entry of *tables*.
+
+    Args:
+        tmp_path: The folder the ``config.toml`` is written to.
+        tables: ``{provider name: [tools.<name>] keys}``.
+        permissions: When given, a ``[permissions]`` table with quoted keys.
 
     Returns:
         The path of the written file; read it with ``read_config_file(path)``.
@@ -175,6 +184,13 @@ def write_config_file(tmp_path: Path, tables: dict[str, dict[str, Any]]) -> Path
     for name, table in tables.items():
         lines.append(f"[tools.{name}]")
         lines.extend(f"{key} = {_toml_value(value)}" for key, value in table.items())
+        lines.append("")
+    if permissions is not None:
+        lines.append("[permissions]")
+        lines.extend(
+            f"{json.dumps(key)} = {json.dumps(mode)}"
+            for key, mode in permissions.items()
+        )
         lines.append("")
     path = tmp_path / "config.toml"
     path.write_text("\n".join(lines), encoding="utf-8")

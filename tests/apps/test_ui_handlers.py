@@ -29,6 +29,7 @@ from agent_workbench.apps.ui_data_layer import SessionDataLayer
 from agent_workbench.apps.ui_launcher import chainlit_port
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.permissions import PermissionConfig
 from agent_workbench.services.tool_call_log import truncate_text
 from tests.adapters.tool_fixtures import (
     new_provider,
@@ -460,16 +461,18 @@ async def test_tool_call_of_a_fake_provider_shows_one_step(
 
     model = make_scripted_chat_model(script, "fake")
     steps = ui_handlers.ToolSteps()
-    # A group the tool filter enables.
     path = write_config_file(tmp_path, {"fake": {"group": "workspace.read"}})
     with patch("agent_workbench.adapters.config.app_data_dir", return_value=tmp_path):
         toolsets = build_toolsets(read_config_file(path))
         try:
+            modes = agent.tool_modes(
+                PermissionConfig({"workspace.read": "allow"}), toolsets.specs
+            )
             graph = agent.build_graph(
                 model,
-                agent.build_tools(toolsets),
+                agent.build_tools(toolsets, modes),
                 InMemorySaver(),
-                modes={"echo": "allow"},
+                modes=modes,
             )
             error = await agent.run_turn(
                 graph,

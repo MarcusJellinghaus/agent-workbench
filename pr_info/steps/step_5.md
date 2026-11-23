@@ -55,8 +55,10 @@ are closed on the error. Without `[tools]`, `[permissions]` is not checked.
   step's `-m "not integration"` run skips it):
   `mcp__mcp-tools-py__run_pytest_check(markers=["integration"], extra_args=["tests/test_tool_path_no_mcp.py"])`.
   It must pass: the script builds the toolsets, calls `read_tables` / `list_directory`
-  and imports no `mcp` (the test skips itself when the `sql` / `workspace` providers are
-  not installed).
+  and imports no `mcp`. Exception: a skip because `sql` / `workspace` are not registered in
+  the `agent_workbench.toolsets` entry-point group counts as done – neither provider
+  registers yet (mcp-workspace #393, mcp-tools-sql #107). Record the run as deferred in
+  the commit message; any other skip or failure blocks the step.
 
 ## DATA
 `modes` as in step 4; `Runtime.permissions: PermissionConfig | None`.

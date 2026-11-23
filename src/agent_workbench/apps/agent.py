@@ -2,11 +2,11 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 from langchain_core.messages import AIMessage, HumanMessage
@@ -17,7 +17,7 @@ from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import tools_condition
 
 from agent_workbench.adapters import config, llm
-from agent_workbench.adapters.config import load_llm_config
+from agent_workbench.adapters.config import ConfigFile, load_llm_config
 from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
 from agent_workbench.adapters.tools import to_structured_tool
@@ -27,8 +27,11 @@ from agent_workbench.apps.tool_setup import build_configured_toolsets
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.permissions import PermissionConfig, parse_permissions
 from agent_workbench.services.tool_call_log import wrap_spec
-from agent_workbench.services.tool_filter import enabled_specs
+
+if TYPE_CHECKING:
+    from agent_workbench.adapters.tool_spec import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +146,8 @@ async def checkpoint_wal(saver: AsyncSqliteSaver) -> None:
 class Runtime:
     """The process-wide agent objects.
 
-    ``toolsets`` is None without a ``[tools]`` table; kept for #19's Reload.
+    ``toolsets`` and ``permissions`` are None without a ``[tools]`` table; both are
+    kept for #19's Reload.
     """
 
     graph: Any
@@ -151,32 +155,75 @@ class Runtime:
     llm_config: LLMConfig
     checkpointer: Any
     toolsets: Toolsets | None = None
+    permissions: PermissionConfig | None = None
 
 
 _runtime: Runtime | None = None
 _runtime_lock = asyncio.Lock()
 
 
-def build_tools(toolsets: Toolsets) -> list[StructuredTool]:
-    """Return the enabled specs, logged and adapted, as LangChain tools.
+def tool_modes(
+    permissions: PermissionConfig, specs: Iterable["ToolSpec"]
+) -> dict[str, PermissionMode]:
+    """Return ``{spec name: effective mode}`` for every spec, ``deny`` included.
 
-    Filtered before adapting, so tools that are not enabled are never bound.
+    Args:
+        permissions: The parsed ``[permissions]`` config.
+        specs: The specs of all configured toolsets.
+
+    Returns:
+        The mode of each spec, in spec order.
+    """
+    return {s.name: permissions.mode_of(s.name, s.group)[0] for s in specs}
+
+
+def build_tools(
+    toolsets: Toolsets, modes: Mapping[str, PermissionMode]
+) -> list[StructuredTool]:
+    """Return the specs whose mode is not ``deny``, logged and adapted, as LangChain tools.
+
+    Filtered before adapting, so ``deny`` tools are never bound.
 
     Args:
         toolsets: The built toolsets of the configured providers.
+        modes: ``{tool name: mode}`` for every spec of *toolsets*.
 
     Returns:
-        One tool per enabled spec, in spec order.
+        One tool per spec that is not ``deny``, in spec order.
     """
-    return [to_structured_tool(wrap_spec(s)) for s in enabled_specs(toolsets.specs)]
+    return [
+        to_structured_tool(wrap_spec(s))
+        for s in toolsets.specs
+        if modes[s.name] != "deny"
+    ]
 
 
-def _modes(toolsets: Toolsets | None) -> dict[str, PermissionMode]:
-    """Return ``allow`` for the enabled specs, ``deny`` for the rest; {} without any."""
-    if toolsets is None:
-        return {}
-    enabled = {s.name for s in enabled_specs(toolsets.specs)}
-    return {s.name: "allow" if s.name in enabled else "deny" for s in toolsets.specs}
+def _runtime_permissions(
+    config_file: ConfigFile, toolsets: Toolsets
+) -> PermissionConfig:
+    """Parse ``[permissions]`` against the configured specs.
+
+    Warnings never raise; they are shown by ``verify``.
+
+    Args:
+        config_file: The read config file.
+        toolsets: The built toolsets of the configured providers.
+
+    Returns:
+        The valid entries.
+
+    Raises:
+        ValueError: If ``[permissions]`` has error rows.
+    """
+    permissions, rows = parse_permissions(
+        config_file.permissions,
+        config_file.permissions_type_error,
+        {s.name: s.group for s in toolsets.specs},
+    )
+    errors = [f"{label} {msg}" for label, status, msg in rows if status == "error"]
+    if errors:
+        raise ValueError("Invalid [permissions] config: " + "; ".join(errors))
+    return permissions
 
 
 async def _open_runtime() -> Runtime:
@@ -189,12 +236,19 @@ async def _open_runtime() -> Runtime:
     llm_config = load_llm_config(config_file)
     chat_model = create_chat_model(llm_config, MODEL_TIMEOUT)
     toolsets: Toolsets | None = None
+    permissions: PermissionConfig | None = None
+    modes: dict[str, PermissionMode] = {}
+    tools: list[StructuredTool] = []
     saver: AsyncSqliteSaver | None = None
     try:
         toolsets = build_configured_toolsets(config_file)
         saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
-        tools = build_tools(toolsets) if toolsets is not None else []
-        graph = build_graph(chat_model, tools, saver, modes=_modes(toolsets))
+        # Without [tools], [permissions] is not checked.
+        if toolsets is not None:
+            permissions = _runtime_permissions(config_file, toolsets)
+            modes = tool_modes(permissions, toolsets.specs)
+            tools = build_tools(toolsets, modes)
+        graph = build_graph(chat_model, tools, saver, modes=modes)
     except BaseException:
         try:
             if saver is not None:
@@ -209,6 +263,7 @@ async def _open_runtime() -> Runtime:
         llm_config=llm_config,
         checkpointer=saver,
         toolsets=toolsets,
+        permissions=permissions,
     )
 
 
@@ -216,8 +271,9 @@ async def get_runtime() -> Runtime:
     """Process-wide runtime, created on first call.
 
     Returns:
-        The runtime shared by all chats. An invalid ``[tools]`` config or a
-        toolset that cannot be built raises ``ValueError``.
+        The runtime shared by all chats. An invalid ``[tools]`` config, a
+        toolset that cannot be built or, with ``[tools]``, an invalid
+        ``[permissions]`` config raises ``ValueError``.
     """
     global _runtime  # pylint: disable=global-statement
     # Opening the checkpointer awaits: without the lock, concurrent first calls

@@ -1,4 +1,4 @@
-"""The tool path (config → toolsets → filter → log → LangChain tool) never imports ``mcp``.
+"""The tool path (config → toolsets → permissions → log → LangChain tool) imports no ``mcp``.
 
 Top level: it spans adapters and services. The per-package guarantee lives in the
 providers' own tests; this one covers agent-workbench's modules on the same path.
@@ -25,8 +25,8 @@ from pathlib import Path
 from agent_workbench.adapters import config
 from agent_workbench.adapters.tools import to_structured_tool
 from agent_workbench.adapters.toolset_providers import build_toolsets
+from agent_workbench.services.permissions import parse_permissions
 from agent_workbench.services.tool_call_log import wrap_spec
-from agent_workbench.services.tool_filter import enabled_specs
 
 tmp = Path(sys.argv[1])
 config.app_data_dir = lambda: tmp
@@ -47,14 +47,22 @@ config_path = tmp / "config.toml"
 config_path.write_text(
     f'[tools.sql]\\nquery_config = "{query_config.as_posix()}"\\n'
     f'database_config = "{database_config.as_posix()}"\\n\\n'
-    f'[tools.workspace]\\nproject_dir = "{workspace.as_posix()}"\\n',
+    f'[tools.workspace]\\nproject_dir = "{workspace.as_posix()}"\\n\\n'
+    '[permissions]\\n"sql.schema" = "allow"\\n"workspace.read" = "allow"\\n',
     encoding="utf-8",
 )
-toolsets = build_toolsets(config.read_config_file(config_path))
+config_file = config.read_config_file(config_path)
+toolsets = build_toolsets(config_file)
 try:
+    permissions, _ = parse_permissions(
+        config_file.permissions,
+        config_file.permissions_type_error,
+        {spec.name: spec.group for spec in toolsets.specs},
+    )
     tools = {
         spec.name: to_structured_tool(wrap_spec(spec))
-        for spec in enabled_specs(toolsets.specs)
+        for spec in toolsets.specs
+        if permissions.mode_of(spec.name, spec.group)[0] != "deny"
     }
     asyncio.run(tools["read_tables"].ainvoke({"schema": "main"}))
     asyncio.run(tools["list_directory"].ainvoke({}))
