@@ -150,7 +150,7 @@ def test_failed_toolset_build_exits_before_chainlit(
     with (
         patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
         patch(
-            "agent_workbench.adapters.tools.build_toolsets",
+            "agent_workbench.adapters.toolset_providers.build_toolsets",
             side_effect=ValueError("duplicate tool name 'x'"),
         ),
     ):
@@ -164,7 +164,9 @@ def test_failed_toolset_build_exits_before_chainlit(
 def test_no_tools_table_skips_toolset_build(isolated: MagicMock) -> None:
     with (
         patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
-        patch("agent_workbench.adapters.tools.build_toolsets") as build_toolsets,
+        patch(
+            "agent_workbench.adapters.toolset_providers.build_toolsets"
+        ) as build_toolsets,
     ):
         assert ui_launcher.main([]) == 0
     build_toolsets.assert_not_called()
@@ -193,7 +195,10 @@ def test_built_toolsets_are_closed_before_chainlit(
             "agent_workbench.services.logging_setup.clamp_loggers",
             calls.clamp_loggers,
         ),
-        patch("agent_workbench.adapters.tools.build_toolsets", calls.build_toolsets),
+        patch(
+            "agent_workbench.adapters.toolset_providers.build_toolsets",
+            calls.build_toolsets,
+        ),
     ):
         assert ui_launcher.main([]) == 0
     names = [name for name, _, _ in calls.mock_calls]

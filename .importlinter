@@ -140,6 +140,16 @@ forbidden_modules =
     langgraph
     chainlit
 
+# verify must work without the [langchain-base] extra: adapters.tools imports langchain_core
+# at top level (langchain_core_isolation ignores adapters.** -> langchain_core).
+[importlinter:contract:verify_without_langchain]
+name = services.verify does not import adapters.tools
+type = forbidden
+source_modules =
+    agent_workbench.services.verify
+forbidden_modules =
+    agent_workbench.adapters.tools
+
 # chainlit: the chat UI. Allowed in apps only.
 [importlinter:contract:chainlit_isolation]
 name = chainlit only in apps

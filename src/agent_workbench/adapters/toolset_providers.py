@@ -1,18 +1,96 @@
-"""Toolset provider discovery through the ``agent_workbench.toolsets`` entry-point group.
+"""Toolset provider discovery and toolset building.
 
 A tool package registers its ``ToolsetProvider`` under the name of its config table
-(``[tools.<name>]``). No module of agent_workbench imports a tool package; providers
-are reached only through their entry points.
+(``[tools.<name>]``) in the ``agent_workbench.toolsets`` entry-point group. No module of
+agent_workbench imports a tool package; providers are reached only through their entry
+points. ``build_toolsets`` builds the toolset of every configured provider.
+
+This module does not import ``langchain_core``, so ``services.verify`` can build the
+toolsets without the ``[langchain-base]`` extra. The ``tool_spec`` shim is imported only
+for type checking or inside ``build_toolsets``, since the core ``mcp-coder-utils`` floor
+has no tool contract.
 """
 
+import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import TYPE_CHECKING
 
+from agent_workbench.adapters.config import ConfigFile, tools_config_problems
+
 if TYPE_CHECKING:
-    from agent_workbench.adapters.tool_spec import ToolsetProvider
+    from agent_workbench.adapters.tool_spec import Toolset, ToolsetProvider, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "agent_workbench.toolsets"
+
+
+@dataclass(frozen=True)
+class Toolsets:
+    """The tool specs of every configured provider plus the toolsets to close.
+
+    Attributes:
+        specs: The specs of all toolsets, in config order; names are unique.
+        toolsets: The built toolsets, in config order.
+    """
+
+    specs: tuple["ToolSpec", ...]
+    toolsets: tuple["Toolset", ...] = ()
+
+    def close(self) -> None:
+        """Close every toolset; a failing close is logged and the rest still close."""
+        for toolset in self.toolsets:
+            try:
+                toolset.close()
+            except Exception:
+                logger.exception("Closing toolset %r failed", toolset)
+
+
+def build_toolsets(config_file: ConfigFile) -> Toolsets:
+    """Build the toolset of every ``[tools.<name>]`` provider; close with ``Toolsets.close``.
+
+    Args:
+        config_file: The read config file; each ``[tools.<name>]`` table is passed
+            unchanged to the provider registered as ``<name>``.
+
+    Returns:
+        The merged specs and the built toolsets.
+
+    Raises:
+        ValueError: A ``[tools]`` shape error, an unregistered provider, a provider build
+            error (``ValueError`` from ``build``) or a duplicate tool name across
+            providers. Toolsets built before the error are closed.
+    """
+    # Lazy: the core mcp-coder-utils floor has no tool_spec.
+    from agent_workbench.adapters.tool_spec import (  # pylint: disable=import-outside-toplevel
+        ToolCollector,
+    )
+
+    errors = [
+        f"{label} {message}"
+        for label, status, message in tools_config_problems(config_file)
+        if status == "error"
+    ]
+    if errors:
+        raise ValueError("Invalid [tools] config: " + "; ".join(errors))
+    collector = ToolCollector()
+    built: list[Toolset] = []
+    try:
+        for name, table in config_file.tools.items():
+            cls = provider_class(name)
+            try:
+                toolset = cls(table).build()
+                built.append(toolset)
+                for spec in toolset.specs:
+                    collector.add(spec)
+            except ValueError as exc:
+                raise ValueError(f"[tools.{name}] {exc}") from exc
+    except BaseException:
+        Toolsets((), tuple(built)).close()
+        raise
+    return Toolsets(collector.specs, tuple(built))
 
 
 def registered_providers() -> list[str]:

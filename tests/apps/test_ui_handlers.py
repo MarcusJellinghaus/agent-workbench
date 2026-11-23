@@ -22,7 +22,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent_workbench import apps
 from agent_workbench.adapters.config import read_config_file
-from agent_workbench.adapters.tools import build_toolsets
+from agent_workbench.adapters.toolset_providers import build_toolsets
 from agent_workbench.apps import agent, ui_handlers
 from agent_workbench.apps.origin_check import OriginCheckMiddleware, local_origins
 from agent_workbench.apps.ui_data_layer import SessionDataLayer

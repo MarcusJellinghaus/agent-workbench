@@ -23,7 +23,8 @@ import sys
 from pathlib import Path
 
 from agent_workbench.adapters import config
-from agent_workbench.adapters.tools import build_toolsets, to_structured_tool
+from agent_workbench.adapters.tools import to_structured_tool
+from agent_workbench.adapters.toolset_providers import build_toolsets
 from agent_workbench.services.tool_call_log import wrap_spec
 from agent_workbench.services.tool_filter import enabled_specs
 

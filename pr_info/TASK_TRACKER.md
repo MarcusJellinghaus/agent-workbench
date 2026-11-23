@@ -31,9 +31,9 @@ See [step_1.md](./steps/step_1.md)
 ### Step 2: Move `Toolsets` / `build_toolsets` to `adapters/toolset_providers.py`; verify guard contract
 See [step_2.md](./steps/step_2.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks (pylint, pytest, mypy, lint-imports, integration run of `tests/test_tool_path_no_mcp.py`) – fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks (pylint, pytest, mypy, lint-imports, integration run of `tests/test_tool_path_no_mcp.py`) – fix all issues
+- [x] Commit message prepared
 
 ### Step 3: PERMISSIONS section in `verify`; remove `ui_launcher._check_toolsets`
 See [step_3.md](./steps/step_3.md)

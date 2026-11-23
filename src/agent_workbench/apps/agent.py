@@ -20,7 +20,8 @@ from agent_workbench.adapters import config, llm
 from agent_workbench.adapters.config import load_llm_config
 from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
-from agent_workbench.adapters.tools import Toolsets, to_structured_tool
+from agent_workbench.adapters.tools import to_structured_tool
+from agent_workbench.adapters.toolset_providers import Toolsets
 from agent_workbench.apps.tool_setup import build_configured_toolsets
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
