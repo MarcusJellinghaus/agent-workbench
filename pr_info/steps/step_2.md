@@ -36,7 +36,10 @@ the lazy `ToolCollector` import inside `build_toolsets` and the `TYPE_CHECKING` 
   become `agent_workbench.adapters.toolset_providers.build_toolsets` (these tests are
   rewritten in step 3; here they only follow the move).
 - `tests/test_tool_path_no_mcp.py` `_SCRIPT`: import `build_toolsets` from
-  `toolset_providers`, `to_structured_tool` from `tools`.
+  `toolset_providers`, `to_structured_tool` from `tools`. The script runs in a subprocess
+  and the test is `integration`-marked, so no other check sees it: run it explicitly with
+  `mcp__mcp-tools-py__run_pytest_check(markers=["integration"], extra_args=["tests/test_tool_path_no_mcp.py"])`
+  (it skips itself when the `sql` / `workspace` providers are not installed).
 - Docstrings: `adapters/tools.py` module docstring (no toolsets any more);
   `adapters/toolset_providers.py` module docstring (discovery and toolset building).
 - `.importlinter` – new contract:

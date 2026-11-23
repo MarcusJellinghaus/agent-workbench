@@ -51,6 +51,12 @@ are closed on the error. Without `[tools]`, `[permissions]` is not checked.
   `parse_permissions` from `services.permissions` (a small inline `[permissions]` table
   allowing `sql.schema` and `workspace.read`) and `mode_of`; module docstring "filter" →
   "permissions". It still imports no `agent_workbench.apps`.
+- Verify the rewritten `_SCRIPT` explicitly (subprocess, `integration`-marked, so the
+  step's `-m "not integration"` run skips it):
+  `mcp__mcp-tools-py__run_pytest_check(markers=["integration"], extra_args=["tests/test_tool_path_no_mcp.py"])`.
+  It must pass: the script builds the toolsets, calls `read_tables` / `list_directory`
+  and imports no `mcp` (the test skips itself when the `sql` / `workspace` providers are
+  not installed).
 
 ## DATA
 `modes` as in step 4; `Runtime.permissions: PermissionConfig | None`.
