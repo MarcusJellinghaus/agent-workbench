@@ -14,7 +14,7 @@ from agent_workbench.adapters import config as adapters_config
 from agent_workbench.adapters import llm, toolset_providers
 from agent_workbench.adapters.config_hints import unknown_key_hint
 from agent_workbench.core.config import LLM_KEYS, LLMConfig
-from agent_workbench.services.permissions import parse_permissions
+from agent_workbench.services.permissions import LABEL, parse_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,6 @@ TEST_PROMPT = "Reply with OK"
 TEST_PROMPT_TIMEOUT = 30
 
 _LLM_LABEL = "[llm]"
-_PERMISSIONS_LABEL = "[permissions]"
 
 
 @dataclass
@@ -229,11 +228,9 @@ def verify_permissions(
         PERMISSIONS rows (``{"label", "status", "value"}``) and whether any is an error.
     """
     if config_file.parse_error:
-        return [
-            _row(_PERMISSIONS_LABEL, "info", "not checked – invalid config file")
-        ], False
+        return [_row(LABEL, "info", "not checked – invalid config file")], False
     if not config_file.tools and not config_file.tools_type_error:
-        return [_row(_PERMISSIONS_LABEL, "info", "not checked – no [tools]")], False
+        return [_row(LABEL, "info", "not checked – no [tools]")], False
     try:
         toolsets = toolset_providers.build_toolsets(config_file)
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -241,14 +238,14 @@ def verify_permissions(
         if tools_has_error:
             return [
                 _row(
-                    _PERMISSIONS_LABEL,
+                    LABEL,
                     "info",
                     "not checked – fix the TOOLS errors first",
                 )
             ], False
         return [
             _row(
-                _PERMISSIONS_LABEL,
+                LABEL,
                 "error",
                 f"building the tools failed: {type(exc).__name__}: {exc}",
             )
@@ -265,9 +262,7 @@ def verify_permissions(
     for spec in toolsets.specs:
         mode, source = config.mode_of(spec.name, spec.group)
         source_text = f"group {spec.group}" if source == "group" else source
-        rows.append(
-            _row(_PERMISSIONS_LABEL, "info", f"{spec.name} {mode} ({source_text})")
-        )
+        rows.append(_row(LABEL, "info", f"{spec.name} {mode} ({source_text})"))
     return rows, any(row["status"] == "error" for row in rows)
 
 
