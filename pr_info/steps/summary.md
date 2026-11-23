@@ -68,6 +68,7 @@ Modified:
 - `src/agent_workbench/interfaces/verify_formatting.py` – PERMISSIONS section
 - `.importlinter` – two contracts
 - `tests/adapters/test_config.py`, `tests/adapters/test_tools.py`, `tests/adapters/test_toolset_providers.py`, `tests/adapters/tool_fixtures.py`
+- `tests/apps/conftest.py` (autouse fixture: app data in `tmp_path`)
 - `tests/apps/test_agent_tools.py`, `tests/apps/test_agent_graph.py`, `tests/apps/test_agent_turn.py`, `tests/apps/test_agent_checkpointer.py`, `tests/apps/test_ui_data_layer_delete.py`, `tests/apps/test_ui_handlers.py`, `tests/apps/test_ui_launcher.py`
 - `tests/services/test_verify.py`, `tests/interfaces/test_verify_formatting.py`, `tests/test_tool_path_no_mcp.py`
 - `README.md`, `docs/architecture/architecture.md`, `docs/security/security_design.md`

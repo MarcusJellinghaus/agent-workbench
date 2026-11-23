@@ -45,8 +45,12 @@ except Exception as exc:  # every build error, never a crash
 try: config, problems = parse_permissions(config_file.permissions, config_file.permissions_type_error,
                                           {s.name: s.group for s in toolsets.specs})
 finally: toolsets.close()
-rows = problems + [row("[permissions]", "info", f"{s.name} {mode} ({source})") per spec, mode/source from config.mode_of]
+rows = [_row(label, status, message) for label, status, message in problems]
+rows += [_row("[permissions]", "info", f"{s.name} {mode} ({source})") per spec, mode/source from config.mode_of]
+return rows, any(r["status"] == "error" for r in rows)
 ```
+`parse_permissions` returns `ProblemRow` tuples; they are converted with `_row` first, so
+`rows` holds only `{"label", "status", "value"}` dicts.
 Source text: `tool`, `group <group>`, or `unlisted`. Info rows are added also when problems
 contain errors. The build succeeding means PERMISSIONS is checked even if TOOLS has errors.
 

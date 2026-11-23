@@ -16,6 +16,7 @@ Precondition: `langgraph.prebuilt.ToolNode.__init__` accepts `awrap_tool_call` a
 - New `src/agent_workbench/apps/permission_gate.py`
 - `src/agent_workbench/apps/agent.py` (`build_graph`, `_open_runtime`)
 - `src/agent_workbench/services/tool_call_log.py` (`_elapsed` → `elapsed`, module docstring)
+- `tests/apps/conftest.py` (autouse fixture: app data in `tmp_path`)
 - Tests: new `tests/apps/test_permission_gate.py`; every `build_graph` caller:
   `tests/apps/test_agent_graph.py`, `test_agent_tools.py`, `test_agent_turn.py`,
   `test_agent_checkpointer.py`, `test_ui_data_layer_delete.py`, `test_ui_handlers.py`
@@ -91,6 +92,13 @@ Keep the existing `handle_tool_errors=True` comment from `build_graph`.
   `apps.permission_gate`; drop the "#18's permission node" sentence.
 - Existing `build_graph` callers in tests pass `modes={...}` explicitly (`{}` for no tools,
   `{tool.name: "allow"}` for their tools) – nothing allowed by omission.
+- Test isolation of the gate's audit log: the gate now logs calls that don't run (e.g.
+  `unknown_tool` in `test_agent_graph.py::test_unknown_tool_call_routes_to_tool_node`), and
+  no fixture redirects app data today. Add an autouse fixture to `tests/apps/conftest.py`
+  that patches `agent_workbench.adapters.config.app_data_dir` to return the test's
+  `tmp_path`, so no test writes to the real `~/.agent_workbench/logs/tool_calls.jsonl`.
+  Tests that patch it themselves (e.g. the `app_data` fixture of `test_agent_tools.py`)
+  keep working: their patch is applied on top, to the same `tmp_path`.
 
 ## DATA
 - `modes`: `{tool name: PermissionMode}` for every configured spec, `deny` included.

@@ -60,15 +60,19 @@ if type_error: return PermissionConfig(), [(LABEL, "error", type_error)]
 if not table: rows.append((LABEL, "warning", "no entries – every tool is deny"))
 groups = set(tools.values())
 for key, value in table.items():
-    dict value   -> error "<key>: unquoted dotted key – quote group names: \"<key>.<sub>\" = ..." (one per sub-key list); skip
-    value not in PERMISSION_MODES -> error "<key>: unknown mode '<value>' (allow, ask, ask_session, deny)"; skip
-    key in tools and key in groups -> error "<key>: is both a tool name and a group name"
-    key in neither -> warning "<key>: names no tool or group of the configured providers – the entry has no effect"
+    dict value   -> error "<key> is an unquoted dotted key – quote group names: \"<key>.<sub>\" = ..." (one per sub-key list); skip
+    value not in PERMISSION_MODES -> error "<key> has an unknown mode '<value>' (allow, ask, ask_session, deny)"; skip
+    key in tools and key in groups -> error "<key> is both a tool name and a group name"; skip
+    key in neither -> warning "<key> names no tool or group of the configured providers – the entry has no effect"
     else entries[key] = value
 return PermissionConfig(entries), rows
 ```
-Every message starts with the key, so `verify_formatting.format_config_section` renders the
-key as the row label.
+Every message starts with the bare key followed by a space (no colon), so
+`verify_formatting.format_config_section` renders an identifier key (`validate_sql`, the
+`sql` of an unquoted dotted key) as the row label. A dotted group key (`sql.schema`) fails
+`_looks_like_key`, so its row has no label and shows the whole message, key included.
+Every error case is skipped: an erroneous key never lands in `entries`, so `mode_of` never
+treats it as a tool-level or group-level entry.
 
 ## HOW
 `.importlinter` – new contract (wildcard `services.*` because import-linter skips pairs where
@@ -103,7 +107,7 @@ forbidden_modules =
   - `mode_of`: tool-level entry beats group-level; group-level applies; unlisted → `("deny", "unlisted")`.
   - unknown mode → error; type error → single error row and empty config.
   - `{"sql": {"schema": "allow"}}` → error containing "quote group names" and `"sql.schema"`.
-  - key that is both a tool and a group name → error.
+  - key that is both a tool and a group name → error, and the key is not in `entries`.
   - unknown tool name and unknown group name → warning containing "has no effect", not error.
   - empty table → the "every tool is deny" warning.
   - valid entries land in `entries`; invalid ones do not.
