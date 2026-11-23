@@ -19,3 +19,11 @@ Reviewing the plan against the code: checking langgraph's `ToolNode`/`ToolCallRe
 Verdict(decision='tasks', tasks=['In pr_info/steps/step_2.md (around line 38), add a verification step after the `_SCRIPT` import change that runs `tests/test_tool_path_no_mcp.py` explicitly with `markers=["integration"]`. Note that the test skips itself when the `sql`/`workspace` providers are missing.', 'In pr_info/steps/step_5.md (around line 50), add a verification step after the `_SCRIPT` rewrite (`parse_permissions` / `mode_of` plus the inline `[permissions]` table) that runs `tests/test_tool_path_no_mcp.py` explicitly with `markers=["integration"]`. It must confirm the script still builds, calls `read_tables` / `list_directory`, and imports no `mcp`.'], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-11-23
+**Findings**:
+Reviewing plan against code: checking verify, ui_launcher and agent.run_turn next.Checking ToolNode's invalid-tool handling, then reporting.NO FINDINGS
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
