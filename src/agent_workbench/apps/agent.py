@@ -22,7 +22,12 @@ from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
 from agent_workbench.adapters.tools import to_structured_tool
 from agent_workbench.adapters.toolset_providers import Toolsets
-from agent_workbench.apps.permission_gate import make_tool_node
+from agent_workbench.apps.permission_gate import (
+    TURN_PERMISSIONS_KEY,
+    Confirm,
+    TurnPermissions,
+    make_tool_node,
+)
 from agent_workbench.apps.tool_setup import build_configured_toolsets
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.permissions import PermissionMode
@@ -310,6 +315,53 @@ def _last_ai_text(messages: Sequence[Any]) -> str:
     return ""
 
 
+class _IdleTimer:
+    """Drives the turn's inactivity timer: paused while a tool runs or a dialog is open."""
+
+    def __init__(self, idle: asyncio.Timeout, idle_timeout: float) -> None:
+        self._idle = idle
+        self._idle_timeout = idle_timeout
+        self._tool_paused = False
+        self._dialogs_open = 0
+
+    def _rearm(self) -> None:
+        """Pause or restart the timer; never touch an expired one (its error wins)."""
+        if self._idle.expired():
+            return
+        if self._tool_paused or self._dialogs_open:
+            self._idle.reschedule(None)
+        else:
+            when = asyncio.get_running_loop().time() + self._idle_timeout
+            self._idle.reschedule(when)
+
+    def on_event(self, kind: str) -> None:
+        """Restart the timer for a stream event of *kind*; a tool start pauses it."""
+        if kind == "on_tool_start":
+            self._tool_paused = True
+        elif kind == "on_chat_model_start":
+            self._tool_paused = False
+        self._rearm()
+
+    def paused_during(self, confirm: Confirm) -> Confirm:
+        """Return *confirm* wrapped so the timer is paused while its dialog is open.
+
+        The end of a dialog does not restart the timer while a tool still runs.
+        """
+
+        async def paused_confirm(
+            name: str, args: dict[str, Any], mode: PermissionMode
+        ) -> bool:
+            self._dialogs_open += 1
+            self._rearm()
+            try:
+                return await confirm(name, args, mode)
+            finally:
+                self._dialogs_open -= 1
+                self._rearm()
+
+        return paused_confirm
+
+
 async def run_turn(  # pylint: disable=too-many-arguments
     graph: Any,
     chat_model: Any,
@@ -323,6 +375,8 @@ async def run_turn(  # pylint: disable=too-many-arguments
     overall_timeout: float = OVERALL_TIMEOUT,
     on_tool_start: ToolStart | None = None,
     on_tool_end: ToolEnd | None = None,
+    confirm: Confirm | None = None,
+    grants: set[str] | None = None,
 ) -> str | None:
     """Run one turn; stream text via *on_text*; return an error message or None.
 
@@ -330,8 +384,12 @@ async def run_turn(  # pylint: disable=too-many-arguments
     and adds no message.
 
     The inactivity limit applies per model call: it is paused from a tool start to
-    the next model start, so a long tool run does not fail the turn. The overall
-    limit always applies.
+    the next model start, and while an approval dialog is open, so a long tool run
+    or a slow answer to a dialog does not fail the turn. The overall limit always
+    applies.
+
+    *confirm* and *grants* reach the permission gate as one ``TurnPermissions`` under
+    ``configurable[TURN_PERMISSIONS_KEY]``; they are not checkpointed.
 
     Args:
         graph: The compiled graph from :func:`build_graph`.
@@ -344,10 +402,14 @@ async def run_turn(  # pylint: disable=too-many-arguments
         token_usage: Updated with the turn's summed usage, only when the turn
             completed.
         idle_timeout: Seconds without a stream event before the turn fails
-            (paused while tools run).
+            (paused while tools run or a dialog is open).
         overall_timeout: Seconds the whole turn may take.
         on_tool_start: Receives ``(run_id, tool name, args)`` when a tool starts.
         on_tool_end: Receives ``(run_id, output text)`` when a tool ends or fails.
+        confirm: Asks the user to approve an ``ask`` / ``ask_session`` call. None:
+            every such call is refused.
+        grants: The conversation's ``ask_session`` grants (tool names), filled by
+            the gate; a new empty set when None. Used only with *confirm*.
 
     Returns:
         ``None`` on success, else the user-facing error message.
@@ -355,17 +417,20 @@ async def run_turn(  # pylint: disable=too-many-arguments
     Raises:
         asyncio.CancelledError: The turn was stopped.
     """
-    run_config = {
-        "configurable": {"thread_id": thread_id},
-        "recursion_limit": AGENT_MAX_STEPS,
-    }
-    graph_input = {"messages": [HumanMessage(content=text)]}
-    loop = asyncio.get_running_loop()
-    usage: UsageInfo = {}
-    streamed = False
-    paused = False
     overall = asyncio.timeout(overall_timeout)
     idle = asyncio.timeout(idle_timeout)
+    timer = _IdleTimer(idle, idle_timeout)
+    configurable: dict[str, Any] = {"thread_id": thread_id}
+    if confirm is not None:
+        configurable[TURN_PERMISSIONS_KEY] = TurnPermissions(
+            confirm=timer.paused_during(confirm),
+            grants=grants if grants is not None else set(),
+            lock=asyncio.Lock(),
+        )
+    run_config = {"configurable": configurable, "recursion_limit": AGENT_MAX_STEPS}
+    graph_input = {"messages": [HumanMessage(content=text)]}
+    usage: UsageInfo = {}
+    streamed = False
     try:
         async with (
             overall,
@@ -376,11 +441,7 @@ async def run_turn(  # pylint: disable=too-many-arguments
         ):
             async for event in events:
                 kind = event["event"]
-                if kind == "on_tool_start":
-                    paused = True
-                elif kind == "on_chat_model_start":
-                    paused = False
-                idle.reschedule(None if paused else loop.time() + idle_timeout)
+                timer.on_event(kind)
                 if kind == "on_chat_model_stream":
                     delta = event["data"]["chunk"].text
                     if delta:
