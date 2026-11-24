@@ -3,7 +3,8 @@
 Precedence per ``[llm]`` key: ``AGENT_WORKBENCH_LLM_*`` env var (empty = unset), then
 ``~/.agent_workbench/config.toml`` ``[llm]``, then unset. ``[tools.*]`` tables have
 no env vars; :func:`tools_config_problems` checks their shape; their keys belong to the
-toolset provider of the same name.
+toolset provider of the same name. The top-level ``[permissions]`` table is read raw here
+and parsed by ``services.permissions``.
 """
 
 import logging
@@ -41,6 +42,8 @@ class ConfigFile:
         llm_type_error: Set when ``[llm]`` is present but not a table.
         tools: Raw ``[tools]`` table; empty when absent or unreadable.
         tools_type_error: Set when ``[tools]`` is present but not a table.
+        permissions: Raw ``[permissions]`` table; empty when absent or unreadable.
+        permissions_type_error: Set when ``[permissions]`` is present but not a table.
     """
 
     path: Path
@@ -50,6 +53,8 @@ class ConfigFile:
     llm_type_error: str | None = None
     tools: dict[str, Any] = field(default_factory=dict)
     tools_type_error: str | None = None
+    permissions: dict[str, Any] = field(default_factory=dict)
+    permissions_type_error: str | None = None
 
 
 def app_data_dir() -> Path:
@@ -87,7 +92,7 @@ def _table(data: Mapping[str, Any], name: str) -> tuple[dict[str, Any], str | No
 
 
 def read_config_file(path: Path | None = None) -> ConfigFile:
-    """Read the config file and extract its raw ``[llm]`` and ``[tools]`` tables.
+    """Read the config file and extract its raw ``[llm]``, ``[tools]``, ``[permissions]``.
 
     Args:
         path: Config file to read; defaults to ``config_file_path()``.
@@ -107,6 +112,7 @@ def read_config_file(path: Path | None = None) -> ConfigFile:
         return ConfigFile(path, True, f"Error reading config file: {path}\n{e}", {})
     llm, llm_type_error = _table(data, "llm")
     tools, tools_type_error = _table(data, "tools")
+    permissions, permissions_type_error = _table(data, "permissions")
     return ConfigFile(
         path,
         True,
@@ -115,6 +121,8 @@ def read_config_file(path: Path | None = None) -> ConfigFile:
         llm_type_error,
         tools=tools,
         tools_type_error=tools_type_error,
+        permissions=permissions,
+        permissions_type_error=permissions_type_error,
     )
 
 

@@ -1,6 +1,6 @@
-"""Toolset building shared by ``get_runtime`` and the ``agent-workbench-ui`` gate."""
+"""Toolset building of ``get_runtime``."""
 
-from agent_workbench.adapters import tools, toolset_providers
+from agent_workbench.adapters import toolset_providers
 from agent_workbench.adapters.config import ConfigFile
 from agent_workbench.services import logging_setup
 
@@ -17,7 +17,9 @@ def clamp_provider_loggers(config_file: ConfigFile) -> None:
     logging_setup.clamp_loggers(toolset_providers.provider_packages(config_file.tools))
 
 
-def build_configured_toolsets(config_file: ConfigFile) -> tools.Toolsets | None:
+def build_configured_toolsets(
+    config_file: ConfigFile,
+) -> toolset_providers.Toolsets | None:
     """Clamp the provider loggers, then build the toolsets of every ``[tools.<name>]``.
 
     ``build_toolsets`` errors propagate; a non-table ``[tools]`` reaches it too, so
@@ -32,4 +34,4 @@ def build_configured_toolsets(config_file: ConfigFile) -> tools.Toolsets | None:
     if not config_file.tools and not config_file.tools_type_error:
         return None
     clamp_provider_loggers(config_file)
-    return tools.build_toolsets(config_file)
+    return toolset_providers.build_toolsets(config_file)

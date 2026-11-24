@@ -10,8 +10,9 @@ duration – never the result. Parameters are redacted by key name, so some harm
 are over-redacted (e.g. ``max_tokens`` contains ``token``); secrets inside free text (SQL
 literals, file content) are not detected.
 
-Not logged here: calls that fail in ``ToolNode`` before ``fn`` runs (invalid arguments,
-unknown tool – #18's permission node logs them). An error a tool returns as text logs as
+Calls that fail before ``fn`` runs (unknown or ``deny`` tool, invalid arguments) and
+calls that are denied or cancelled before running are logged by
+``apps.permission_gate``, with the same writer. An error a tool returns as text logs as
 ``ok``; a sync tool still running after Stop logs ``ok`` when it finishes.
 """
 
@@ -138,7 +139,7 @@ def log_tool_call(
         logger.exception("Writing the tool-call log failed")
 
 
-def _elapsed(start: float) -> float:
+def elapsed(start: float) -> float:
     """Return the seconds since *start* (``time.monotonic``), rounded to milliseconds."""
     return round(time.monotonic() - start, 3)
 
@@ -165,12 +166,12 @@ def wrap_spec(spec: "ToolSpec") -> "ToolSpec":
             try:
                 result = await fn(**kwargs)
             except asyncio.CancelledError:
-                log_tool_call(name, kwargs, "cancelled", None, _elapsed(start))
+                log_tool_call(name, kwargs, "cancelled", None, elapsed(start))
                 raise
             except Exception:
-                log_tool_call(name, kwargs, "error", None, _elapsed(start))
+                log_tool_call(name, kwargs, "error", None, elapsed(start))
                 raise
-            log_tool_call(name, kwargs, "ok", len(result_text(result)), _elapsed(start))
+            log_tool_call(name, kwargs, "ok", len(result_text(result)), elapsed(start))
             return result
 
         return dataclasses.replace(spec, fn=async_wrapper)
@@ -181,9 +182,9 @@ def wrap_spec(spec: "ToolSpec") -> "ToolSpec":
         try:
             result = fn(**kwargs)
         except Exception:
-            log_tool_call(name, kwargs, "error", None, _elapsed(start))
+            log_tool_call(name, kwargs, "error", None, elapsed(start))
             raise
-        log_tool_call(name, kwargs, "ok", len(result_text(result)), _elapsed(start))
+        log_tool_call(name, kwargs, "ok", len(result_text(result)), elapsed(start))
         return result
 
     return dataclasses.replace(spec, fn=sync_wrapper)

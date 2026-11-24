@@ -1,6 +1,6 @@
 # agent-workbench Security Design
 
-**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI, sessions, tools and tool-call log; permissions planned)
+**Scope**: milestones 1–2 – local, single user, Windows dev machine | **Status**: partly implemented (chat UI, sessions, tools, tool permissions and tool-call log)
 **Maintainer**: Marcus Jellinghaus
 
 Reporting vulnerabilities: see [`SECURITY.md`](../../SECURITY.md). Architecture: [`docs/architecture/architecture.md`](../architecture/architecture.md).
@@ -43,7 +43,7 @@ The model never gets a database connection or credentials. It can only request a
 ## 3. Data sent to the LLM provider
 
 - **Rule**: only providers approved for the classification of the data in use may be configured – e.g. a local model (Ollama) or the company's own endpoint.
-- **Minimisation through default permission modes**: schema / table / column read and `validate_sql` are `allow`; profiling tools, `query_*` and update tools are `deny` until the user enables them. Workspace read and write are `allow`.
+- **Minimisation through permission modes**: the defaults are not shipped – without `[permissions]` every tool is `deny`. The recommended defaults (README, "Permissions") set schema / table / column read, `validate_sql` and workspace read and write to `allow`; profiling tools, `query_*` and update tools stay `deny` until the user enables them.
 - **Tool errors**: the graph runs tools with `handle_tool_errors=True`, so the exception text of a failed tool goes to the provider as the tool's result.
 - Which provider is approved is a policy decision outside this repository.
 
@@ -53,10 +53,13 @@ The model never gets a database connection or credentials. It can only request a
 
 ### 4.1 Tool permissions
 
-- A mode per tool or tool group in the agent-workbench config: `allow`, `ask` (confirm each call), `ask_session` (confirm once per session), `deny`.
+- A mode per tool or tool group in the `[permissions]` table of the agent-workbench config: `allow`, `ask` (confirm each call), `ask_session` (confirm once per tool per conversation; not kept across a reload, resume or restart), `deny`.
 - Unlisted tools are `deny`. `deny` tools are not shown to the model at all.
-- `ask` / `ask_session`: Chainlit shows the tool name and its parameters with OK / Cancel before the call runs.
-- Defaults in the example config: SQL schema / table / column read, `validate_sql`, workspace read and write → `allow`; everything else → `deny`.
+- `ask` / `ask_session`: Chainlit shows the tool name and its arguments with OK / Cancel before the call runs. The arguments message before each dialog is saved in `chainlit.sqlite` (see §5).
+- Recommended defaults: the README block ("Permissions"; no example file is shipped) – SQL schema / table / column read, `validate_sql`, workspace read and write → `allow`; everything else → `deny`.
+- The outcomes of calls that don't run (denied, blocked, unknown tool, invalid arguments, dialog error, cancelled during a dialog) are in `tool_calls.jsonl`.
+- Fail closed: no dialog reachable, a failing dialog or a timeout (300 s) → the call is denied.
+- Reconnect during a dialog: the dialog is cleared in the page, and Chainlit's `connection_successful` also hides Stop and reopens the input. A new message starts a second turn, and Stop then reaches only that one; the old call is denied at the 300 s timeout (fail closed). Same exposure as #17's long tools.
 
 ### 4.2 SQL
 
@@ -90,7 +93,7 @@ The model never gets a database connection or credentials. It can only request a
 ### 4.6 Limits
 
 - At most 50 agent steps per turn (LangGraph `recursion_limit`); a `GraphRecursionError` is shown as a message.
-- 300 s inactivity per turn (no stream event), paused while tools run, and 3600 s overall per turn.
+- 300 s inactivity per turn (no stream event), paused while tools run and while a confirmation dialog is open, and 3600 s overall per turn.
 - Chat model HTTP timeout 300 s.
 - Token usage per turn and per session is shown in the UI. No budgets.
 
@@ -108,9 +111,9 @@ The model never gets a database connection or credentials. It can only request a
 
 | Store | Content | Location | Retention |
 |---|---|---|---|
-| Tool-call log | One JSON line per call: user, tool, parameters (strings cut at 200 characters, secret keys redacted), outcome, result size, duration. No results. May contain parameter data. | `<app-data>/logs/tool_calls.jsonl` | None – kept until deleted |
+| Tool-call log | One JSON line per call, including calls that do not run: user, tool, parameters (strings cut at 200 characters, secret keys redacted), outcome (`ok`, `error`, `cancelled`, `denied`, `blocked`, `unknown_tool`, `invalid_arguments`, `dialog_error`), result size, duration. No results. May contain parameter data. | `<app-data>/logs/tool_calls.jsonl` | None – kept until deleted |
 | App log | `agent-workbench-ui` log, one file per run; tool packages' loggers clamped to `INFO`, whose lines may still contain file paths and error texts | `<app-data>/logs/agent_workbench_ui_*.log` | None – kept until deleted |
-| Session database | Full conversations including tool results; tool steps (arguments, results truncated to 2000 characters); feedback ratings and comments if the thumbs buttons are used | `<app-data>/sessions/`: `checkpoints.sqlite` (LangGraph checkpointer), `chainlit.sqlite` (Chainlit data layer, incl. the tool steps) | Until the user deletes the session in the UI |
+| Session database | Full conversations including tool results; tool steps (arguments, results truncated to 2000 characters); the arguments message and the ask text of each confirmation dialog (`chainlit.sqlite`); feedback ratings and comments if the thumbs buttons are used | `<app-data>/sessions/`: `checkpoints.sqlite` (LangGraph checkpointer), `chainlit.sqlite` (Chainlit data layer, incl. the tool steps) | Until the user deletes the session in the UI |
 
 Logging strategy and the tool-call log in detail: [architecture §6, "Logging and retention"](../architecture/architecture.md#logging-and-retention).
 

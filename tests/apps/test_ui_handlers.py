@@ -22,13 +22,14 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent_workbench import apps
 from agent_workbench.adapters.config import read_config_file
-from agent_workbench.adapters.tools import build_toolsets
+from agent_workbench.adapters.toolset_providers import build_toolsets
 from agent_workbench.apps import agent, ui_handlers
 from agent_workbench.apps.origin_check import OriginCheckMiddleware, local_origins
 from agent_workbench.apps.ui_data_layer import SessionDataLayer
 from agent_workbench.apps.ui_launcher import chainlit_port
 from agent_workbench.core.config import LLMConfig
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.permissions import PermissionConfig
 from agent_workbench.services.tool_call_log import truncate_text
 from tests.adapters.tool_fixtures import (
     new_provider,
@@ -170,6 +171,49 @@ def test_session_reuses_token_usage(fake_cl: FakeChainlit) -> None:
 
 
 @pytest.mark.usefixtures("runtime")
+def test_turn_gets_the_dialog_and_the_session_grants(fake_cl: FakeChainlit) -> None:
+    with patch.object(ui_handlers, "run_turn", AsyncMock(return_value=None)) as turn:
+        asyncio.run(ui_handlers.on_message(_user_message("one")))
+        asyncio.run(ui_handlers.on_message(_user_message("two")))
+        first, second = (call.kwargs for call in turn.call_args_list)
+        assert first["confirm"] is ui_handlers.confirm_tool_call
+        grants = fake_cl.session[ui_handlers.GRANTS_KEY]
+        assert isinstance(grants, set)
+        assert first["grants"] is second["grants"] is grants
+
+        fake_cl.session.clear()  # a new chat or a reload: a new user session
+        asyncio.run(ui_handlers.on_message(_user_message("three")))
+    third = turn.call_args.kwargs["grants"]
+    assert third == set()
+    assert third is not grants
+
+
+@pytest.mark.usefixtures("runtime")
+def test_restored_null_grants_are_replaced(fake_cl: FakeChainlit) -> None:
+    fake_cl.session[ui_handlers.GRANTS_KEY] = None
+    with patch.object(ui_handlers, "run_turn", AsyncMock(return_value=None)) as turn:
+        asyncio.run(ui_handlers.on_message(_user_message()))
+    grants = turn.call_args.kwargs["grants"]
+    assert grants == set()
+    assert fake_cl.session[ui_handlers.GRANTS_KEY] is grants
+
+
+@pytest.mark.parametrize("fails", [False, True], ids=["runtime", "no-runtime"])
+def test_resume_resets_the_grants(fails: bool, fake_cl: FakeChainlit) -> None:
+    fake_cl.session[ui_handlers.GRANTS_KEY] = {"write_file"}
+    rt = MagicMock()
+    rt.checkpointer.aget_tuple = AsyncMock(return_value=MagicMock())
+    get_rt = (
+        AsyncMock(side_effect=RuntimeError("no rt"))
+        if fails
+        else AsyncMock(return_value=rt)
+    )
+    with patch.object(ui_handlers, "get_runtime", get_rt):
+        asyncio.run(ui_handlers.on_chat_resume({"id": THREAD_ID}))
+    assert fake_cl.session[ui_handlers.GRANTS_KEY] == set()
+
+
+@pytest.mark.usefixtures("runtime")
 def test_stop_propagates_without_messages(fake_cl: FakeChainlit) -> None:
     with (
         patch.object(
@@ -219,6 +263,7 @@ def test_checkpointer_is_the_runtimes(runtime: MagicMock) -> None:
     assert asyncio.run(ui_handlers._checkpointer()) is runtime.checkpointer
 
 
+@pytest.mark.usefixtures("fake_cl")
 @pytest.mark.parametrize("state", [None, MagicMock()], ids=["missing", "present"])
 def test_resume_warns_without_checkpoint(
     runtime: MagicMock, state: Any, caplog: pytest.LogCaptureFixture
@@ -232,6 +277,7 @@ def test_resume_warns_without_checkpoint(
     assert (THREAD_ID in caplog.text) is (state is None)
 
 
+@pytest.mark.usefixtures("fake_cl")
 def test_resume_logs_runtime_failure(caplog: pytest.LogCaptureFixture) -> None:
     with (
         patch.object(
@@ -311,7 +357,7 @@ async def test_turn_on_a_deleted_thread_leaves_no_checkpoints(
     checkpointer: AsyncSqliteSaver,
 ) -> None:
     model = make_scripted_chat_model(lambda _n: AIMessage(content="hi"), "fake")
-    runtime.graph = agent.build_graph(model, [], checkpointer)
+    runtime.graph = agent.build_graph(model, [], checkpointer, modes={})
     runtime.chat_model = model
     runtime.llm_config = LLMConfig(backend="openai", model="gpt-4o")
     user = await data_layer.create_user(User(identifier="alice"))
@@ -460,13 +506,18 @@ async def test_tool_call_of_a_fake_provider_shows_one_step(
 
     model = make_scripted_chat_model(script, "fake")
     steps = ui_handlers.ToolSteps()
-    # A group the tool filter enables.
     path = write_config_file(tmp_path, {"fake": {"group": "workspace.read"}})
     with patch("agent_workbench.adapters.config.app_data_dir", return_value=tmp_path):
         toolsets = build_toolsets(read_config_file(path))
         try:
+            modes = agent.tool_modes(
+                PermissionConfig({"workspace.read": "allow"}), toolsets.specs
+            )
             graph = agent.build_graph(
-                model, agent.build_tools(toolsets), InMemorySaver()
+                model,
+                agent.build_tools(toolsets, modes),
+                InMemorySaver(),
+                modes=modes,
             )
             error = await agent.run_turn(
                 graph,

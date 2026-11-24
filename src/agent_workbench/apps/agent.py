@@ -2,11 +2,11 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 from langchain_core.messages import AIMessage, HumanMessage
@@ -14,18 +14,29 @@ from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError, NodeCancelledError
 from langgraph.graph import START, MessagesState, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 
 from agent_workbench.adapters import config, llm
-from agent_workbench.adapters.config import load_llm_config
+from agent_workbench.adapters.config import ConfigFile, load_llm_config
 from agent_workbench.adapters.llm import create_chat_model
 from agent_workbench.adapters.llm_types import UsageInfo
-from agent_workbench.adapters.tools import Toolsets, to_structured_tool
+from agent_workbench.adapters.tools import to_structured_tool
+from agent_workbench.adapters.toolset_providers import Toolsets
+from agent_workbench.apps.permission_gate import (
+    TURN_PERMISSIONS_KEY,
+    Confirm,
+    TurnPermissions,
+    make_tool_node,
+)
 from agent_workbench.apps.tool_setup import build_configured_toolsets
 from agent_workbench.core.config import LLMConfig
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.permissions import PermissionConfig, parse_permissions
 from agent_workbench.services.tool_call_log import wrap_spec
-from agent_workbench.services.tool_filter import enabled_specs
+
+if TYPE_CHECKING:
+    from agent_workbench.adapters.tool_spec import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +57,27 @@ _STEPS_MSG = (
 )
 
 
-def build_graph(chat_model: Any, tools: Sequence[Any], checkpointer: Any) -> Any:
-    """Compile model node → ToolNode, routed by tools_condition.
+def build_graph(
+    chat_model: Any,
+    tools: Sequence[Any],
+    checkpointer: Any,
+    *,
+    modes: Mapping[str, PermissionMode],
+) -> Any:
+    """Compile model node → gated ToolNode, routed by tools_condition.
+
+    A bound tool missing from *modes* or mapped to ``deny`` raises ``ValueError``.
 
     Args:
         chat_model: A ``BaseChatModel``; tools are bound only when there are any.
         tools: The tools offered to the model.
         checkpointer: The LangGraph checkpoint saver keeping the threads.
+        modes: ``{tool name: mode}`` for every configured tool, ``deny`` included.
 
     Returns:
         The compiled graph.
     """
+    tool_node = make_tool_node(tools, modes)
     model = chat_model.bind_tools(tools) if tools else chat_model
 
     async def call_model(state: MessagesState) -> dict[str, Any]:
@@ -64,10 +85,7 @@ def build_graph(chat_model: Any, tools: Sequence[Any], checkpointer: Any) -> Any
 
     graph = StateGraph(MessagesState)
     graph.add_node("model", call_model)
-    # The default handler re-raises everything except ToolInvocationError; with True
-    # every tool exception becomes an error ToolMessage (its text goes to the provider)
-    # and the turn continues. asyncio.CancelledError is not an Exception and propagates.
-    graph.add_node("tools", ToolNode(list(tools), handle_tool_errors=True))
+    graph.add_node("tools", tool_node)
     graph.add_edge(START, "model")
     graph.add_conditional_edges("model", tools_condition)
     graph.add_edge("tools", "model")
@@ -133,7 +151,8 @@ async def checkpoint_wal(saver: AsyncSqliteSaver) -> None:
 class Runtime:
     """The process-wide agent objects.
 
-    ``toolsets`` is None without a ``[tools]`` table; kept for #19's Reload.
+    ``toolsets`` and ``permissions`` are None without a ``[tools]`` table; both are
+    kept for #19's Reload.
     """
 
     graph: Any
@@ -141,24 +160,75 @@ class Runtime:
     llm_config: LLMConfig
     checkpointer: Any
     toolsets: Toolsets | None = None
+    permissions: PermissionConfig | None = None
 
 
 _runtime: Runtime | None = None
 _runtime_lock = asyncio.Lock()
 
 
-def build_tools(toolsets: Toolsets) -> list[StructuredTool]:
-    """Return the enabled specs, logged and adapted, as LangChain tools.
+def tool_modes(
+    permissions: PermissionConfig, specs: Iterable["ToolSpec"]
+) -> dict[str, PermissionMode]:
+    """Return ``{spec name: effective mode}`` for every spec, ``deny`` included.
 
-    Filtered before adapting, so tools that are not enabled are never bound.
+    Args:
+        permissions: The parsed ``[permissions]`` config.
+        specs: The specs of all configured toolsets.
+
+    Returns:
+        The mode of each spec, in spec order.
+    """
+    return {s.name: permissions.mode_of(s.name, s.group)[0] for s in specs}
+
+
+def build_tools(
+    toolsets: Toolsets, modes: Mapping[str, PermissionMode]
+) -> list[StructuredTool]:
+    """Return the specs whose mode is not ``deny``, logged and adapted, as LangChain tools.
+
+    Filtered before adapting, so ``deny`` tools are never bound.
 
     Args:
         toolsets: The built toolsets of the configured providers.
+        modes: ``{tool name: mode}`` for every spec of *toolsets*.
 
     Returns:
-        One tool per enabled spec, in spec order.
+        One tool per spec that is not ``deny``, in spec order.
     """
-    return [to_structured_tool(wrap_spec(s)) for s in enabled_specs(toolsets.specs)]
+    return [
+        to_structured_tool(wrap_spec(s))
+        for s in toolsets.specs
+        if modes[s.name] != "deny"
+    ]
+
+
+def _runtime_permissions(
+    config_file: ConfigFile, toolsets: Toolsets
+) -> PermissionConfig:
+    """Parse ``[permissions]`` against the configured specs.
+
+    Warnings never raise; they are shown by ``verify``.
+
+    Args:
+        config_file: The read config file.
+        toolsets: The built toolsets of the configured providers.
+
+    Returns:
+        The valid entries.
+
+    Raises:
+        ValueError: If ``[permissions]`` has error rows.
+    """
+    permissions, rows = parse_permissions(
+        config_file.permissions,
+        config_file.permissions_type_error,
+        {s.name: s.group for s in toolsets.specs},
+    )
+    errors = [f"{label} {msg}" for label, status, msg in rows if status == "error"]
+    if errors:
+        raise ValueError("Invalid [permissions] config: " + "; ".join(errors))
+    return permissions
 
 
 async def _open_runtime() -> Runtime:
@@ -171,12 +241,19 @@ async def _open_runtime() -> Runtime:
     llm_config = load_llm_config(config_file)
     chat_model = create_chat_model(llm_config, MODEL_TIMEOUT)
     toolsets: Toolsets | None = None
+    permissions: PermissionConfig | None = None
+    modes: dict[str, PermissionMode] = {}
+    tools: list[StructuredTool] = []
     saver: AsyncSqliteSaver | None = None
     try:
         toolsets = build_configured_toolsets(config_file)
         saver = await open_checkpointer(sessions_dir() / "checkpoints.sqlite")
-        tools = build_tools(toolsets) if toolsets is not None else []
-        graph = build_graph(chat_model, tools, saver)
+        # Without [tools], [permissions] is not checked.
+        if toolsets is not None:
+            permissions = _runtime_permissions(config_file, toolsets)
+            modes = tool_modes(permissions, toolsets.specs)
+            tools = build_tools(toolsets, modes)
+        graph = build_graph(chat_model, tools, saver, modes=modes)
     except BaseException:
         try:
             if saver is not None:
@@ -191,6 +268,7 @@ async def _open_runtime() -> Runtime:
         llm_config=llm_config,
         checkpointer=saver,
         toolsets=toolsets,
+        permissions=permissions,
     )
 
 
@@ -198,8 +276,9 @@ async def get_runtime() -> Runtime:
     """Process-wide runtime, created on first call.
 
     Returns:
-        The runtime shared by all chats. An invalid ``[tools]`` config or a
-        toolset that cannot be built raises ``ValueError``.
+        The runtime shared by all chats. An invalid ``[tools]`` config, a
+        toolset that cannot be built or, with ``[tools]``, an invalid
+        ``[permissions]`` config raises ``ValueError``.
     """
     global _runtime  # pylint: disable=global-statement
     # Opening the checkpointer awaits: without the lock, concurrent first calls
@@ -236,6 +315,53 @@ def _last_ai_text(messages: Sequence[Any]) -> str:
     return ""
 
 
+class _IdleTimer:
+    """Drives the turn's inactivity timer: paused while a tool runs or a dialog is open."""
+
+    def __init__(self, idle: asyncio.Timeout, idle_timeout: float) -> None:
+        self._idle = idle
+        self._idle_timeout = idle_timeout
+        self._tool_paused = False
+        self._dialogs_open = 0
+
+    def _rearm(self) -> None:
+        """Pause or restart the timer; never touch an expired one (its error wins)."""
+        if self._idle.expired():
+            return
+        if self._tool_paused or self._dialogs_open:
+            self._idle.reschedule(None)
+        else:
+            when = asyncio.get_running_loop().time() + self._idle_timeout
+            self._idle.reschedule(when)
+
+    def on_event(self, kind: str) -> None:
+        """Restart the timer for a stream event of *kind*; a tool start pauses it."""
+        if kind == "on_tool_start":
+            self._tool_paused = True
+        elif kind == "on_chat_model_start":
+            self._tool_paused = False
+        self._rearm()
+
+    def paused_during(self, confirm: Confirm) -> Confirm:
+        """Return *confirm* wrapped so the timer is paused while its dialog is open.
+
+        The end of a dialog does not restart the timer while a tool still runs.
+        """
+
+        async def paused_confirm(
+            name: str, args: dict[str, Any], mode: PermissionMode
+        ) -> bool:
+            self._dialogs_open += 1
+            self._rearm()
+            try:
+                return await confirm(name, args, mode)
+            finally:
+                self._dialogs_open -= 1
+                self._rearm()
+
+        return paused_confirm
+
+
 async def run_turn(  # pylint: disable=too-many-arguments
     graph: Any,
     chat_model: Any,
@@ -249,6 +375,8 @@ async def run_turn(  # pylint: disable=too-many-arguments
     overall_timeout: float = OVERALL_TIMEOUT,
     on_tool_start: ToolStart | None = None,
     on_tool_end: ToolEnd | None = None,
+    confirm: Confirm | None = None,
+    grants: set[str] | None = None,
 ) -> str | None:
     """Run one turn; stream text via *on_text*; return an error message or None.
 
@@ -256,8 +384,12 @@ async def run_turn(  # pylint: disable=too-many-arguments
     and adds no message.
 
     The inactivity limit applies per model call: it is paused from a tool start to
-    the next model start, so a long tool run does not fail the turn. The overall
-    limit always applies.
+    the next model start, and while an approval dialog is open, so a long tool run
+    or a slow answer to a dialog does not fail the turn. The overall limit always
+    applies.
+
+    *confirm* and *grants* reach the permission gate as one ``TurnPermissions`` under
+    ``configurable[TURN_PERMISSIONS_KEY]``; they are not checkpointed.
 
     Args:
         graph: The compiled graph from :func:`build_graph`.
@@ -270,10 +402,14 @@ async def run_turn(  # pylint: disable=too-many-arguments
         token_usage: Updated with the turn's summed usage, only when the turn
             completed.
         idle_timeout: Seconds without a stream event before the turn fails
-            (paused while tools run).
+            (paused while tools run or a dialog is open).
         overall_timeout: Seconds the whole turn may take.
         on_tool_start: Receives ``(run_id, tool name, args)`` when a tool starts.
         on_tool_end: Receives ``(run_id, output text)`` when a tool ends or fails.
+        confirm: Asks the user to approve an ``ask`` / ``ask_session`` call. None:
+            every such call is refused.
+        grants: The conversation's ``ask_session`` grants (tool names), filled by
+            the gate; a new empty set when None. Used only with *confirm*.
 
     Returns:
         ``None`` on success, else the user-facing error message.
@@ -281,17 +417,20 @@ async def run_turn(  # pylint: disable=too-many-arguments
     Raises:
         asyncio.CancelledError: The turn was stopped.
     """
-    run_config = {
-        "configurable": {"thread_id": thread_id},
-        "recursion_limit": AGENT_MAX_STEPS,
-    }
-    graph_input = {"messages": [HumanMessage(content=text)]}
-    loop = asyncio.get_running_loop()
-    usage: UsageInfo = {}
-    streamed = False
-    paused = False
     overall = asyncio.timeout(overall_timeout)
     idle = asyncio.timeout(idle_timeout)
+    timer = _IdleTimer(idle, idle_timeout)
+    configurable: dict[str, Any] = {"thread_id": thread_id}
+    if confirm is not None:
+        configurable[TURN_PERMISSIONS_KEY] = TurnPermissions(
+            confirm=timer.paused_during(confirm),
+            grants=grants if grants is not None else set(),
+            lock=asyncio.Lock(),
+        )
+    run_config = {"configurable": configurable, "recursion_limit": AGENT_MAX_STEPS}
+    graph_input = {"messages": [HumanMessage(content=text)]}
+    usage: UsageInfo = {}
+    streamed = False
     try:
         async with (
             overall,
@@ -302,11 +441,7 @@ async def run_turn(  # pylint: disable=too-many-arguments
         ):
             async for event in events:
                 kind = event["event"]
-                if kind == "on_tool_start":
-                    paused = True
-                elif kind == "on_chat_model_start":
-                    paused = False
-                idle.reschedule(None if paused else loop.time() + idle_timeout)
+                timer.on_event(kind)
                 if kind == "on_chat_model_stream":
                     delta = event["data"]["chunk"].text
                     if delta:

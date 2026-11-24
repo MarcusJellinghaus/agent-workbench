@@ -1,4 +1,4 @@
-"""``main`` of ``agent-workbench-ui``: dependency check, ``verify``, toolset build, Chainlit start."""
+"""``main`` of ``agent-workbench-ui``: dependency check, ``verify``, Chainlit start."""
 
 import importlib.util
 import os
@@ -143,64 +143,51 @@ def test_missing_dependency_exits_before_verify(
     isolated.assert_not_called()
 
 
-def test_failed_toolset_build_exits_before_chainlit(
-    isolated: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    write_config_file(tmp_path, {"fake": {}})
+@pytest.fixture(name="real_verify")
+def _real_verify() -> Iterator[None]:
+    """Run the real ``run_verify`` with a passing provider check and test prompt."""
     with (
-        patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
         patch(
-            "agent_workbench.adapters.tools.build_toolsets",
-            side_effect=ValueError("duplicate tool name 'x'"),
+            "agent_workbench.adapters.langchain._provider_checks.check_provider",
+            return_value={"overall_ok": True},
         ),
+        patch("agent_workbench.services.verify._run_test_prompt", return_value=None),
+        patch("agent_workbench.services.logging_setup.clamp_loggers"),
     ):
-        assert ui_launcher.main([]) == 1
-    err = capsys.readouterr().err
-    assert "Building the tools failed" in err
-    assert "duplicate tool name 'x'" in err
+        yield
+
+
+@pytest.mark.usefixtures("real_verify")
+def test_failed_toolset_build_exits_before_chainlit(
+    isolated: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    register_providers(monkeypatch, {"fake": new_provider()})
+    write_config_file(tmp_path, {"fake": {"fail": "boom"}})
+    assert ui_launcher.main([]) == 1
+    out = capsys.readouterr().out
+    permissions = out[out.index("=== PERMISSIONS") : out.index("=== LLM PROVIDER ")]
+    assert "[ERR]" in permissions
+    assert "the tools failed: ValueError: [tools.fake] fake build failed: boom" in (
+        permissions
+    )
     isolated.assert_not_called()
 
 
-def test_no_tools_table_skips_toolset_build(isolated: MagicMock) -> None:
-    with (
-        patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
-        patch("agent_workbench.adapters.tools.build_toolsets") as build_toolsets,
-    ):
-        assert ui_launcher.main([]) == 0
-    build_toolsets.assert_not_called()
-    isolated.assert_called_once()
-
-
+@pytest.mark.usefixtures("real_verify")
 def test_tools_not_a_table_exits_before_chainlit(
     isolated: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (tmp_path / "config.toml").write_text('tools = "x"\n', encoding="utf-8")
-    with patch("agent_workbench.services.verify.run_verify", return_value=_report(0)):
-        assert ui_launcher.main([]) == 1
-    assert "Building the tools failed" in capsys.readouterr().err
+    assert ui_launcher.main([]) == 1
+    out = capsys.readouterr().out
+    tools = out[out.index("=== TOOLS") : out.index("=== PERMISSIONS")]
+    assert "[ERR]" in tools
+    assert "table, got str" in tools
+    assert "not checked – fix the TOOLS errors first" in out
     isolated.assert_not_called()
-
-
-def test_built_toolsets_are_closed_before_chainlit(
-    isolated: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    register_providers(monkeypatch, {"fake": new_provider()})
-    write_config_file(tmp_path, {"fake": {}})
-    calls = MagicMock()
-    with (
-        patch("agent_workbench.services.verify.run_verify", return_value=_report(0)),
-        patch(
-            "agent_workbench.services.logging_setup.clamp_loggers",
-            calls.clamp_loggers,
-        ),
-        patch("agent_workbench.adapters.tools.build_toolsets", calls.build_toolsets),
-    ):
-        assert ui_launcher.main([]) == 0
-    names = [name for name, _, _ in calls.mock_calls]
-    assert names.index("clamp_loggers") < names.index("build_toolsets")
-    calls.clamp_loggers.assert_called_with(["tests"])
-    calls.build_toolsets.return_value.close.assert_called_once_with()
-    isolated.assert_called_once()
 
 
 def test_provider_loggers_clamped_before_verify(

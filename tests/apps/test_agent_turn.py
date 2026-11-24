@@ -1,14 +1,17 @@
-"""``run_turn``: streaming, final-message fallback, limits, timeouts, errors, Stop, usage."""
+"""``run_turn``: streaming, final-message fallback, limits, timeouts, errors, Stop, usage,
+per-turn permissions."""
 
 import asyncio
+import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Self
 from unittest.mock import patch
 
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -16,7 +19,13 @@ from langgraph.errors import NodeCancelledError
 
 from agent_workbench.adapters import llm
 from agent_workbench.apps import agent
+from agent_workbench.apps.permission_gate import (
+    DENY_UNAVAILABLE,
+    TURN_PERMISSIONS_KEY,
+    TurnPermissions,
+)
 from agent_workbench.core.config import LLMConfig
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
 from tests.langchain_doubles import make_scripted_chat_model
 
@@ -74,8 +83,11 @@ class _RecordingModel(BaseChatModel):  # type: ignore[misc]
         return "recording"
 
 
-def _graph(model: Any, tools: Sequence[Any] = ()) -> Any:
-    return agent.build_graph(model, tools, InMemorySaver())
+def _graph(
+    model: Any, tools: Sequence[Any] = (), mode: PermissionMode = "allow"
+) -> Any:
+    modes: dict[str, PermissionMode] = {tool.name: mode for tool in tools}
+    return agent.build_graph(model, tools, InMemorySaver(), modes=modes)
 
 
 async def _turn(
@@ -396,3 +408,153 @@ async def test_failed_turn_leaves_usage_unchanged() -> None:
         message = await _turn(_graph(model), model, "hi", [], token_usage)
     assert message == "Error: mapped"
     assert token_usage == TokenUsage()
+
+
+# --- per-turn permissions -------------------------------------------------------------
+
+
+class _Confirm:
+    """Confirm callback answering after *delay* seconds; records its calls.
+
+    Answers OK, except Cancel for the tools named in *cancel*.
+    """
+
+    def __init__(self, delay: float = 0.0, cancel: Sequence[str] = ()) -> None:
+        self.delay = delay
+        self.cancel = set(cancel)
+        self.calls: list[tuple[str, dict[str, Any], PermissionMode]] = []
+        self.entered = asyncio.Event()
+
+    async def __call__(
+        self, name: str, args: dict[str, Any], mode: PermissionMode
+    ) -> bool:
+        self.calls.append((name, args, mode))
+        self.entered.set()
+        await asyncio.sleep(self.delay)
+        return name not in self.cancel
+
+
+def _outcomes(tmp_path: Path) -> list[str]:
+    """Return the outcomes in ``tool_calls.jsonl`` (app data is ``tmp_path``)."""
+    path = tmp_path / "logs" / "tool_calls.jsonl"
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line)["outcome"] for line in lines]
+
+
+async def _tool_messages(graph: Any) -> list[ToolMessage]:
+    state = await graph.aget_state({"configurable": {"thread_id": "thread-1"}})
+    return [m for m in state.values["messages"] if isinstance(m, ToolMessage)]
+
+
+async def test_open_dialog_pauses_the_idle_timer() -> None:
+    model = _call_then_answer("echo", text="x")
+    graph = _graph(model, [echo], "ask")
+    collected: list[str] = []
+    message = await _turn(
+        graph,
+        model,
+        "hi",
+        collected,
+        idle_timeout=0.1,
+        overall_timeout=5,
+        confirm=_Confirm(delay=0.3),
+    )
+    assert message is None
+    assert collected == ["done"]
+    (tool_message,) = await _tool_messages(graph)
+    assert tool_message.status == "success"
+    assert tool_message.content == "x"
+
+
+async def test_dialog_ending_while_a_tool_runs_keeps_the_timer_paused() -> None:
+    """Call A is approved and runs 0.3 s; call B's dialog closes meanwhile.
+
+    B is cancelled, so no tool event of B re-pauses the timer after its dialog.
+    """
+
+    def script(n: int) -> AIMessage:
+        if n > 1:
+            return AIMessage(content="done")
+        calls = [
+            {"name": "slow", "args": {"text": "a"}, "id": "call-1"},
+            {"name": "echo", "args": {"text": "b"}, "id": "call-2"},
+        ]
+        return AIMessage(content="", tool_calls=calls)
+
+    model = make_scripted_chat_model(script, "fake")
+    confirm = _Confirm(delay=0.03, cancel=["echo"])
+    graph = _graph(model, [slow, echo], "ask")
+    with patch.object(llm, "map_provider_error") as spy:
+        message = await _turn(
+            graph,
+            model,
+            "hi",
+            [],
+            idle_timeout=0.1,
+            overall_timeout=5,
+            confirm=confirm,
+        )
+    assert message is None
+    spy.assert_not_called()
+    assert [name for name, _, _ in confirm.calls] == ["slow", "echo"]
+    messages = {m.tool_call_id: m for m in await _tool_messages(graph)}
+    assert messages["call-1"].content == "a"
+    assert messages["call-2"].status == "error"
+
+
+async def test_without_confirm_an_ask_tool_is_denied(tmp_path: Path) -> None:
+    model = _call_then_answer("echo", text="x")
+    graph = _graph(model, [echo], "ask")
+    assert await _turn(graph, model, "hi", []) is None
+    (tool_message,) = await _tool_messages(graph)
+    assert tool_message.status == "error"
+    assert tool_message.content == DENY_UNAVAILABLE
+    assert _outcomes(tmp_path) == ["denied"]
+
+
+async def test_confirm_gets_the_call_and_the_gate_fills_the_passed_grants() -> None:
+    model = _call_then_answer("echo", text="x")
+    confirm = _Confirm()
+    grants: set[str] = set()
+    message = await _turn(
+        _graph(model, [echo], "ask_session"),
+        model,
+        "hi",
+        [],
+        confirm=confirm,
+        grants=grants,
+    )
+    assert message is None
+    assert confirm.calls == [("echo", {"text": "x"}, "ask_session")]
+    assert grants == {"echo"}
+
+
+async def test_turn_permissions_are_not_checkpointed() -> None:
+    saver = InMemorySaver()
+    model = _call_then_answer("echo", text="x")
+    graph = agent.build_graph(model, [echo], saver, modes={"echo": "ask"})
+    assert await _turn(graph, model, "hi", [], confirm=_Confirm()) is None
+    checkpoint = await saver.aget_tuple({"configurable": {"thread_id": "thread-1"}})
+    assert checkpoint is not None
+    metadata = checkpoint.metadata
+    assert TURN_PERMISSIONS_KEY not in metadata
+    assert not any(
+        callable(value) or isinstance(value, TurnPermissions)
+        for value in metadata.values()
+    )
+
+
+async def test_stop_during_a_dialog_propagates_cancel(tmp_path: Path) -> None:
+    confirm = _Confirm(delay=60)
+    model = _call_then_answer("echo", text="x")
+    graph = _graph(model, [echo], "ask")
+    with patch.object(llm, "map_provider_error") as spy:
+        task = asyncio.create_task(_turn(graph, model, "hi", [], confirm=confirm))
+        await asyncio.wait_for(confirm.entered.wait(), 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    spy.assert_not_called()
+    assert _outcomes(tmp_path) == ["cancelled"]

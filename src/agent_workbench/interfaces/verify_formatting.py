@@ -165,6 +165,8 @@ def format_report(report: VerifyReport) -> str:
         format_config_section(report.config_entries),
         pad("TOOLS"),
         format_config_section(report.tools_entries),
+        pad("PERMISSIONS"),
+        format_config_section(report.permissions_entries),
         pad("LLM PROVIDER"),
         format_row(
             "Active provider",

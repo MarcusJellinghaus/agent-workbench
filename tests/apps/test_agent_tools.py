@@ -13,11 +13,16 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agent_workbench.adapters.config import read_config_file
-from agent_workbench.adapters.tools import Toolsets, build_toolsets
-from agent_workbench.adapters.toolset_providers import registered_providers
+from agent_workbench.adapters.toolset_providers import (
+    Toolsets,
+    build_toolsets,
+    registered_providers,
+)
 from agent_workbench.apps import agent
 from agent_workbench.core.config import LLMConfig
+from agent_workbench.core.permissions import PermissionMode
 from agent_workbench.core.types import TokenUsage
+from agent_workbench.services.permissions import PermissionConfig
 from tests.adapters.tool_fixtures import (
     new_provider,
     register_providers,
@@ -27,8 +32,16 @@ from tests.langchain_doubles import make_scripted_chat_model
 
 LLM_CONFIG = LLMConfig(backend="openai", model="gpt-4o")
 
-# The groups and names of tests/services/test_tool_filter.py, one provider per group.
-_FILTER_TABLES: dict[str, dict[str, Any]] = {
+# The README's default [permissions] block.
+_DEFAULT_PERMISSIONS: dict[str, PermissionMode] = {
+    "sql.schema": "allow",
+    "validate_sql": "allow",
+    "workspace.read": "allow",
+    "workspace.write": "allow",
+}
+
+# The groups and names of the sql and workspace providers, one fake provider per group.
+_GROUP_TABLES: dict[str, dict[str, Any]] = {
     "schema": {"tools": ["read_tables"], "group": "sql.schema"},
     "validation": {"tools": ["validate_sql", "verify"], "group": "sql.validation"},
     "profiling": {"tools": ["profile_table"], "group": "sql.profiling"},
@@ -73,7 +86,9 @@ def _calling(*calls: tuple[str, dict[str, Any]]) -> Any:
 
 async def _run_loop(toolsets: Toolsets, model: Any) -> dict[str, Any]:
     """Run one turn of *model* with the tools of *toolsets*; return what happened."""
-    graph = agent.build_graph(model, agent.build_tools(toolsets), InMemorySaver())
+    modes = agent.tool_modes(PermissionConfig(_DEFAULT_PERMISSIONS), toolsets.specs)
+    tools = agent.build_tools(toolsets, modes)
+    graph = agent.build_graph(model, tools, InMemorySaver(), modes=modes)
     starts: list[tuple[str, str, dict[str, Any]]] = []
     ends: list[tuple[str, str]] = []
 
@@ -128,6 +143,25 @@ async def _assert_closed(saver: Any) -> None:
         await saver.conn.execute("SELECT 1")
 
 
+async def _open_and_close(model: Any) -> tuple[agent.Runtime, Any, Any]:
+    """Open the runtime with *model*, then close it.
+
+    Returns:
+        The runtime, the ``bind_tools`` mock and the ``build_graph`` spy.
+    """
+    with (
+        patch.object(agent, "load_llm_config", return_value=LLM_CONFIG),
+        patch.object(agent, "create_chat_model", return_value=model),
+        patch.object(type(model), "bind_tools", return_value=model) as bind,
+        patch.object(agent, "build_graph", wraps=agent.build_graph) as build,
+    ):
+        try:
+            runtime = await agent.get_runtime()
+        finally:
+            await agent.close_runtime()
+    return runtime, bind, build
+
+
 async def test_agent_loop_runs_sync_and_async_tools(
     app_data: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -167,22 +201,14 @@ async def test_agent_loop_runs_sync_and_async_tools(
 
 
 @pytest.mark.usefixtures("fresh_runtime")
-async def test_only_enabled_tools_are_bound(
+async def test_default_permissions_bind_schema_validate_read_write(
     app_data: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``get_runtime`` binds schema, ``validate_sql``, read and write tools only."""
-    register_providers(monkeypatch, {name: new_provider() for name in _FILTER_TABLES})
-    write_config_file(app_data, _FILTER_TABLES)
-    model = _answer("hi")
-    with (
-        patch.object(agent, "load_llm_config", return_value=LLM_CONFIG),
-        patch.object(agent, "create_chat_model", return_value=model),
-        patch.object(type(model), "bind_tools", return_value=model) as bind,
-    ):
-        try:
-            await agent.get_runtime()
-        finally:
-            await agent.close_runtime()
+    """The README default block binds schema, ``validate_sql``, read and write tools."""
+    register_providers(monkeypatch, {name: new_provider() for name in _GROUP_TABLES})
+    write_config_file(app_data, _GROUP_TABLES, _DEFAULT_PERMISSIONS)
+
+    runtime, bind, _ = await _open_and_close(_answer("hi"))
 
     bind.assert_called_once()
     assert [tool.name for tool in bind.call_args.args[0]] == [
@@ -191,6 +217,108 @@ async def test_only_enabled_tools_are_bound(
         "read_file",
         "save_file",
     ]
+    assert runtime.permissions == PermissionConfig(_DEFAULT_PERMISSIONS)
+
+
+@pytest.mark.usefixtures("fresh_runtime")
+async def test_modes_drive_binding_and_the_graph(
+    app_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``deny`` is not bound, ``ask`` / ``ask_session`` are; a tool entry beats its group."""
+    register_providers(monkeypatch, {"fake": new_provider()})
+    write_config_file(
+        app_data,
+        {"fake": {"tools": ["denied", "asked", "session", "allowed"], "group": "g"}},
+        {"g": "allow", "denied": "deny", "asked": "ask", "session": "ask_session"},
+    )
+
+    _, bind, build = await _open_and_close(_answer("hi"))
+
+    assert [tool.name for tool in bind.call_args.args[0]] == [
+        "asked",
+        "session",
+        "allowed",
+    ]
+    assert build.call_args.kwargs["modes"] == {
+        "denied": "deny",
+        "asked": "ask",
+        "session": "ask_session",
+        "allowed": "allow",
+    }
+
+
+@pytest.mark.usefixtures("fresh_runtime")
+async def test_no_permissions_binds_no_tools(
+    app_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``[tools]`` without ``[permissions]`` → every tool is deny, nothing bound."""
+    register_providers(monkeypatch, {"fake": new_provider()})
+    write_config_file(app_data, {"fake": {}})
+
+    runtime, bind, build = await _open_and_close(_answer("hi"))
+
+    bind.assert_not_called()
+    assert build.call_args.args[1] == []
+    assert build.call_args.kwargs["modes"] == {"echo": "deny"}
+    assert runtime.permissions == PermissionConfig()
+
+
+@pytest.mark.usefixtures("fresh_runtime")
+async def test_unknown_permissions_key_does_not_fail_get_runtime(
+    app_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key naming no tool or group is a warning: the runtime still opens."""
+    register_providers(monkeypatch, {"fake": new_provider()})
+    write_config_file(
+        app_data, {"fake": {}}, {"fake.read": "allow", "no_such_tool": "allow"}
+    )
+
+    runtime, bind, _ = await _open_and_close(_answer("hi"))
+
+    assert [tool.name for tool in bind.call_args.args[0]] == ["echo"]
+    assert runtime.permissions == PermissionConfig({"fake.read": "allow"})
+
+
+@pytest.mark.usefixtures("fresh_runtime")
+async def test_invalid_permissions_fail_get_runtime(
+    app_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unknown mode with ``[tools]`` → ValueError; toolsets and checkpointer closed."""
+    provider = new_provider()
+    register_providers(monkeypatch, {"fake": provider})
+    write_config_file(app_data, {"fake": {}}, {"fake.read": "sometimes"})
+    opened, spy = _spy_open()
+    with (
+        patch.object(agent, "load_llm_config", return_value=LLM_CONFIG),
+        patch.object(agent, "create_chat_model", return_value=_answer("hi")),
+        patch.object(agent, "open_checkpointer", side_effect=spy),
+        pytest.raises(
+            ValueError,
+            match=r"Invalid \[permissions\] config: \[permissions\] fake\.read has an "
+            r"unknown mode 'sometimes'",
+        ),
+    ):
+        await agent.get_runtime()
+
+    for saver in opened:
+        await _assert_closed(saver)
+    assert provider.built[0].closed
+    assert agent._runtime is None
+
+
+@pytest.mark.usefixtures("fresh_runtime")
+async def test_invalid_permissions_without_tools_are_not_checked(
+    app_data: Path,
+) -> None:
+    """Without ``[tools]``, ``[permissions]`` is not checked and not kept."""
+    (app_data / "config.toml").write_text(
+        '[permissions]\n"x" = "sometimes"\n', encoding="utf-8"
+    )
+
+    runtime, bind, _ = await _open_and_close(_answer("hi"))
+
+    bind.assert_not_called()
+    assert runtime.permissions is None
 
 
 @pytest.mark.usefixtures("fresh_runtime")

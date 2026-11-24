@@ -153,6 +153,41 @@ def test_format_report_tools_section_after_config() -> None:
     assert "[WARN]" in lines[header + 3] and "config.c: odd" in lines[header + 3]
 
 
+def test_format_report_permissions_section_after_tools() -> None:
+    text = format_report(
+        _report(
+            tools_entries=[
+                {"label": "[tools.fake]", "status": "ok", "value": "config.a: found"}
+            ],
+            permissions_entries=[
+                {
+                    "label": "[permissions]",
+                    "status": "error",
+                    "value": "echo has an unknown mode 'x'",
+                },
+                {
+                    "label": "[permissions]",
+                    "status": "info",
+                    "value": "echo deny (unlisted)",
+                },
+            ],
+            permissions_has_error=True,
+        )
+    )
+    lines = text.splitlines()
+    assert text.index("=== TOOLS") < text.index("=== PERMISSIONS")
+    assert text.index("=== PERMISSIONS") < text.index("=== LLM PROVIDER ")
+    header = lines.index("  [permissions]")
+    assert (
+        lines.index(next(x for x in lines if x.startswith("=== PERMISSIONS"))) < header
+    )
+    assert lines[header + 1].startswith("    echo")
+    assert "[ERR]" in lines[header + 1]
+    assert "has an unknown mode 'x'" in lines[header + 1]
+    assert lines[header + 2].startswith("    echo")
+    assert "deny (unlisted)" in lines[header + 2]
+
+
 def test_format_report_not_configured() -> None:
     text = format_report(_report(backend=None))
     assert "not configured" in _line(text, "Active provider")

@@ -1,4 +1,4 @@
-"""``verify`` checks: config, tools, LLM provider and a live test prompt.
+"""``verify`` checks: config, tools, permissions, LLM provider and a live test prompt.
 
 Returns a structured :class:`VerifyReport`; printing is left to ``interfaces``.
 The copied model layer is imported inside :func:`run_verify` so that importing
@@ -14,6 +14,7 @@ from agent_workbench.adapters import config as adapters_config
 from agent_workbench.adapters import llm, toolset_providers
 from agent_workbench.adapters.config_hints import unknown_key_hint
 from agent_workbench.core.config import LLM_KEYS, LLMConfig
+from agent_workbench.services.permissions import LABEL, parse_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class VerifyReport:
         exit_code: 0 when every exit-relevant check passed, else 1.
         tools_entries: TOOLS rows, same shape as ``config_entries``.
         tools_has_error: Whether the TOOLS section found an error.
+        permissions_entries: PERMISSIONS rows, same shape as ``config_entries``.
+        permissions_has_error: Whether the PERMISSIONS section found an error.
     """
 
     config_path: Path
@@ -53,6 +56,8 @@ class VerifyReport:
     exit_code: int
     tools_entries: list[dict[str, str]] = field(default_factory=list)
     tools_has_error: bool = False
+    permissions_entries: list[dict[str, str]] = field(default_factory=list)
+    permissions_has_error: bool = False
 
 
 def _llm_entry(status: str, value: str) -> dict[str, str]:
@@ -206,6 +211,61 @@ def verify_tools(
     return rows, any(row["status"] == "error" for row in rows)
 
 
+def verify_permissions(
+    config_file: adapters_config.ConfigFile, *, tools_has_error: bool
+) -> tuple[list[dict[str, str]], bool]:
+    """Check ``[permissions]`` against the tools of the configured providers.
+
+    Builds the toolsets (no connection, per the provider contract) and closes them.
+    A build that succeeds is checked even when TOOLS has errors.
+
+    Args:
+        config_file: The read config file.
+        tools_has_error: Whether the TOOLS section found an error; a failing build is
+            then reported as not checked instead of as an error.
+
+    Returns:
+        PERMISSIONS rows (``{"label", "status", "value"}``) and whether any is an error.
+    """
+    if config_file.parse_error:
+        return [_row(LABEL, "info", "not checked – invalid config file")], False
+    if not config_file.tools and not config_file.tools_type_error:
+        return [_row(LABEL, "info", "not checked – no [tools]")], False
+    try:
+        toolsets = toolset_providers.build_toolsets(config_file)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # Every build error becomes a row; verify never crashes on a provider.
+        if tools_has_error:
+            return [
+                _row(
+                    LABEL,
+                    "info",
+                    "not checked – fix the TOOLS errors first",
+                )
+            ], False
+        return [
+            _row(
+                LABEL,
+                "error",
+                f"building the tools failed: {type(exc).__name__}: {exc}",
+            )
+        ], True
+    try:
+        config, problems = parse_permissions(
+            config_file.permissions,
+            config_file.permissions_type_error,
+            {spec.name: spec.group for spec in toolsets.specs},
+        )
+    finally:
+        toolsets.close()
+    rows = [_row(label, status, message) for label, status, message in problems]
+    for spec in toolsets.specs:
+        mode, source = config.mode_of(spec.name, spec.group)
+        source_text = f"group {spec.group}" if source == "group" else source
+        rows.append(_row(LABEL, "info", f"{spec.name} {mode} ({source_text})"))
+    return rows, any(row["status"] == "error" for row in rows)
+
+
 def collect_install_hints(rows: dict[str, Any]) -> list[str]:
     """Collect ``install_hint`` values from failed provider rows.
 
@@ -227,6 +287,7 @@ def compute_exit_code(
     overall_ok: bool,
     test_prompt_ok: bool,
     tools_has_error: bool = False,
+    permissions_has_error: bool = False,
 ) -> int:
     """Compute the ``verify`` exit code.
 
@@ -237,11 +298,18 @@ def compute_exit_code(
         overall_ok: ``check_provider()``'s ``overall_ok``.
         test_prompt_ok: Whether the test prompt answered.
         tools_has_error: Whether the TOOLS section found an error.
+        permissions_has_error: Whether the PERMISSIONS section found an error.
 
     Returns:
-        1 if any of the four failed, else 0.
+        1 if any of the five failed, else 0.
     """
-    if config_has_error or not overall_ok or not test_prompt_ok or tools_has_error:
+    if (
+        config_has_error
+        or not overall_ok
+        or not test_prompt_ok
+        or tools_has_error
+        or permissions_has_error
+    ):
         return 1
     return 0
 
@@ -294,6 +362,9 @@ def run_verify(
     config_file = adapters_config.read_config_file()
     entries, config_has_error = verify_config(config_file)
     tools_entries, tools_has_error = verify_tools(config_file, connect=connect_tools)
+    permissions_entries, permissions_has_error = verify_permissions(
+        config_file, tools_has_error=tools_has_error
+    )
     config = adapters_config.load_llm_config(config_file)
     rows = _provider_checks.check_provider(config.as_dict(), check_models=check_models)
     test_prompt_error = _run_test_prompt(config)
@@ -310,7 +381,10 @@ def run_verify(
             bool(rows["overall_ok"]),
             test_prompt_error is None,
             tools_has_error,
+            permissions_has_error,
         ),
         tools_entries=tools_entries,
         tools_has_error=tools_has_error,
+        permissions_entries=permissions_entries,
+        permissions_has_error=permissions_has_error,
     )

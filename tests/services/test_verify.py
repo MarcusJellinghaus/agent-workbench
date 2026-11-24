@@ -520,6 +520,10 @@ def test_compute_exit_code_tools_error() -> None:
     assert compute_exit_code(False, True, True, tools_has_error=True) == 1
 
 
+def test_compute_exit_code_permissions_error() -> None:
+    assert compute_exit_code(False, True, True, permissions_has_error=True) == 1
+
+
 def test_collect_install_hints() -> None:
     rows: dict[str, Any] = {
         "a": {"ok": False, "install_hint": "pip install a"},

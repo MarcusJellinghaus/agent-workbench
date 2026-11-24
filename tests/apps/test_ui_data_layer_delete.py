@@ -53,7 +53,7 @@ def _thread(thread_id: str) -> dict[str, Any]:
 async def _turn(saver: AsyncSqliteSaver, thread_id: str) -> None:
     """Write checkpoints for *thread_id* with one graph turn of the scripted model."""
     model = make_scripted_chat_model(lambda _n: AIMessage(content="hi"), "fake")
-    graph = agent.build_graph(model, [], saver)
+    graph = agent.build_graph(model, [], saver, modes={})
     await graph.ainvoke({"messages": [HumanMessage("hello")]}, _thread(thread_id))
     assert await saver.aget_tuple(_thread(thread_id)) is not None
 

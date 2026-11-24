@@ -78,9 +78,18 @@ _._chat_model
 _.pytestmark
 # tests/apps/test_agent_checkpointer.py: pytest fixture, used via usefixtures
 _._fresh_runtime
-# tests/apps/conftest.py: autouse fixture resetting Chainlit's data layer
+# tests/apps/test_ui_launcher.py: pytest fixture, used via usefixtures
+_._real_verify
+# tests/apps/conftest.py: autouse fixtures resetting Chainlit's data layer, app data in tmp_path
 _._chainlit_data_layer
+_._app_data_in_tmp_path
 # tests/conftest.py: pytest fixture, used via usefixtures
 _.restore_root_logging
 # tests/services/test_tool_call_log.py: pydantic field of a nested test argument
 _.password
+# apps/ui_handlers.py: Chainlit AskActionMessage attribute, read by its to_dict()
+_.wait_for_answer
+# tests/apps/test_ui_handlers_dialog.py: BaseChainlitEmitter overrides, called by Chainlit
+_.update_step
+_.send_ask_user
+_.raise_on_timeout

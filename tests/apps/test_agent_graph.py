@@ -29,19 +29,19 @@ def _answer(text: str) -> Any:
 def test_empty_tool_list_does_not_bind_tools() -> None:
     model = _answer("hi")
     with patch.object(type(model), "bind_tools") as spy:
-        agent.build_graph(model, [], InMemorySaver())
+        agent.build_graph(model, [], InMemorySaver(), modes={})
     spy.assert_not_called()
 
 
 def test_tools_are_bound_once() -> None:
     model = _answer("hi")
     with patch.object(type(model), "bind_tools", return_value=model) as spy:
-        agent.build_graph(model, [echo], InMemorySaver())
+        agent.build_graph(model, [echo], InMemorySaver(), modes={echo.name: "allow"})
     spy.assert_called_once_with([echo])
 
 
 async def test_plain_answer_ends_the_run() -> None:
-    graph = agent.build_graph(_answer("hello"), [], InMemorySaver())
+    graph = agent.build_graph(_answer("hello"), [], InMemorySaver(), modes={})
     config = {"configurable": {"thread_id": "t1"}}
     result = await graph.ainvoke({"messages": [HumanMessage("hi")]}, config)
     assert [m.type for m in result["messages"]] == ["human", "ai"]
@@ -56,7 +56,7 @@ async def test_unknown_tool_call_routes_to_tool_node() -> None:
         return AIMessage(content="done")
 
     model = make_scripted_chat_model(script, "fake")
-    graph = agent.build_graph(model, [], InMemorySaver())
+    graph = agent.build_graph(model, [], InMemorySaver(), modes={})
     config = {"configurable": {"thread_id": "t1"}}
     result = await graph.ainvoke({"messages": [HumanMessage("hi")]}, config)
 
@@ -85,7 +85,7 @@ async def test_tool_exception_becomes_error_message() -> None:
         return AIMessage(content="done")
 
     model = make_scripted_chat_model(script, "fake")
-    graph = agent.build_graph(model, [fail], InMemorySaver())
+    graph = agent.build_graph(model, [fail], InMemorySaver(), modes={"fail": "allow"})
     config = {"configurable": {"thread_id": "t1"}}
     result = await graph.ainvoke({"messages": [HumanMessage("hi")]}, config)
 
